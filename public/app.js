@@ -272,6 +272,7 @@ function configureLandingMode() {
     // QR로 들어온 학생에게는 교사용 방 만들기 UI를 아예 보여 주지 않는다.
     teacherCard?.classList.add('hidden');
     studentInfoCard?.classList.remove('hidden');
+    studentJoinCard?.classList.remove('hidden');
     studentJoinCard?.classList.add('student-entry-card');
 
     if (roomInput) {
@@ -290,6 +291,7 @@ function configureLandingMode() {
     // 선생님이 기본 주소로 접속한 경우 기존 교사용 방 만들기 화면을 유지한다.
     teacherCard?.classList.remove('hidden');
     studentInfoCard?.classList.add('hidden');
+    studentJoinCard?.classList.add('hidden');
     studentJoinCard?.classList.remove('student-entry-card');
     document.body.classList.remove('student-qr-mode');
 

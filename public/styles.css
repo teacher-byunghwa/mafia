@@ -231,3 +231,18 @@ label { display: grid; gap: 7px; font-weight: 700; color: #334155; }
     grid-template-columns: 1fr;
   }
 }
+
+
+/* v3.1: 기본 주소는 교사용 화면만 표시 */
+body:not(.student-qr-mode) #landing {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+}
+body.student-qr-mode #landing {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (max-width: 760px) {
+  body.student-qr-mode #landing {
+    grid-template-columns: 1fr;
+  }
+}
