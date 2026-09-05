@@ -19,7 +19,7 @@
     </header>
 
     <section id="landing" class="grid two">
-      <article class="card">
+      <article id="teacherCreateCard" class="card">
         <h2>👩‍🏫 교사용 방 만들기</h2>
         <p class="muted">역할 수와 시간을 정한 뒤 방을 만드세요.</p>
         <div class="form-grid">
@@ -34,12 +34,26 @@
         <button id="createRoomBtn" class="primary">방 만들기</button>
       </article>
 
-      <article class="card">
+      <article id="studentInfoCard" class="card student-info-card hidden">
+        <div class="student-welcome-icon">🎭</div>
+        <h2>우리 반 마피아에 오신 것을 환영해요!</h2>
+        <p class="muted">친구들과 이야기하고 추리하면서 숨어 있는 마피아를 찾아보세요.</p>
+        <div class="student-guide">
+          <div><span>1</span><p><strong>닉네임으로 입장하기</strong><br>선생님이 알아볼 수 있는 닉네임을 사용해요.</p></div>
+          <div><span>2</span><p><strong>내 역할은 나만 보기</strong><br>게임 시작 뒤 15초 동안 자신의 역할을 확인해요. 친구에게 화면을 보여주면 안 돼요.</p></div>
+          <div><span>3</span><p><strong>낮에는 토론과 투표</strong><br>친구들의 이야기를 잘 듣고 누가 마피아인지 추리해요.</p></div>
+          <div><span>4</span><p><strong>밤에는 화면 안내 따르기</strong><br>살아 있는 학생은 모두 화면에서 한 명을 선택해요.</p></div>
+        </div>
+        <p class="student-rule-note">🤫 역할과 비밀 정보는 게임이 끝날 때까지 다른 친구에게 말하지 않아요!</p>
+      </article>
+
+      <article id="studentJoinCard" class="card">
         <h2>🧑‍🎓 학생 입장</h2>
-        <p class="muted">QR을 찍었으면 방 번호가 자동 입력됩니다.</p>
-        <label>방 번호 <input id="roomCodeInput" maxlength="6" placeholder="예: AB12CD"></label>
-        <label>닉네임 <input id="nicknameInput" maxlength="18" placeholder="예: 토끼반장"></label>
+        <p id="studentJoinHelp" class="muted">QR을 찍었으면 방 번호가 자동 입력됩니다.</p>
+        <label id="roomCodeLabel">방 번호 <input id="roomCodeInput" maxlength="6" placeholder="예: AB12CD"></label>
+        <label>닉네임 <input id="nicknameInput" maxlength="18" placeholder="예: 토끼반장" autocomplete="off"></label>
         <button id="joinRoomBtn" class="secondary">입장하기</button>
+        <p id="studentQrNotice" class="student-qr-notice hidden">✅ 선생님이 만든 게임방으로 연결되었습니다. 닉네임만 입력하고 입장하세요.</p>
       </article>
     </section>
 

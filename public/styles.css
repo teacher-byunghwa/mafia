@@ -159,3 +159,75 @@ label { display: grid; gap: 7px; font-weight: 700; color: #334155; }
   white-space: normal;
   pointer-events: none;
 }
+
+
+/* v3.0: QR 학생 전용 입장 화면 */
+.student-info-card {
+  border-top: 4px solid #7c3aed;
+}
+.student-welcome-icon {
+  font-size: 42px;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+.student-guide {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+.student-guide > div {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.student-guide > div > span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #ede9fe;
+  color: #5b21b6;
+  font-weight: 950;
+}
+.student-guide p {
+  margin: 0;
+  line-height: 1.45;
+}
+.student-rule-note {
+  margin: 16px 0 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  font-size: 13px;
+  font-weight: 800;
+}
+.student-entry-card {
+  align-self: start;
+  border-top: 4px solid #2563eb;
+}
+.student-room-code-locked {
+  opacity: .72;
+}
+.student-room-code-locked input {
+  background: #f1f5f9;
+  cursor: default;
+}
+.student-qr-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #065f46;
+  font-size: 13px;
+  font-weight: 800;
+}
+@media (max-width: 760px) {
+  body.student-qr-mode #landing {
+    grid-template-columns: 1fr;
+  }
+}

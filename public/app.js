@@ -255,6 +255,56 @@ function roleTotal() {
   return s.mafia + s.citizen + s.police + s.doctor;
 }
 
+function configureLandingMode() {
+  const params = new URLSearchParams(location.search);
+  const qrRoomCode = (params.get('room') || '').trim().toUpperCase();
+  const isStudentQrEntry = /^[A-Z0-9]{6}$/.test(qrRoomCode);
+
+  const teacherCard = $('teacherCreateCard');
+  const studentInfoCard = $('studentInfoCard');
+  const studentJoinCard = $('studentJoinCard');
+  const roomInput = $('roomCodeInput');
+  const roomLabel = $('roomCodeLabel');
+  const joinHelp = $('studentJoinHelp');
+  const qrNotice = $('studentQrNotice');
+
+  if (isStudentQrEntry) {
+    // QR로 들어온 학생에게는 교사용 방 만들기 UI를 아예 보여 주지 않는다.
+    teacherCard?.classList.add('hidden');
+    studentInfoCard?.classList.remove('hidden');
+    studentJoinCard?.classList.add('student-entry-card');
+
+    if (roomInput) {
+      roomInput.value = qrRoomCode;
+      roomInput.readOnly = true;
+      roomInput.setAttribute('aria-readonly', 'true');
+    }
+    roomLabel?.classList.add('student-room-code-locked');
+    if (joinHelp) joinHelp.textContent = '선생님이 만든 방에 들어갑니다. 닉네임만 입력하세요.';
+    qrNotice?.classList.remove('hidden');
+    document.body.classList.add('student-qr-mode');
+
+    // 태블릿에서 바로 닉네임을 입력하기 쉽도록 입력칸에 초점을 둔다.
+    setTimeout(() => $('nicknameInput')?.focus(), 120);
+  } else {
+    // 선생님이 기본 주소로 접속한 경우 기존 교사용 방 만들기 화면을 유지한다.
+    teacherCard?.classList.remove('hidden');
+    studentInfoCard?.classList.add('hidden');
+    studentJoinCard?.classList.remove('student-entry-card');
+    document.body.classList.remove('student-qr-mode');
+
+    if (roomInput) {
+      roomInput.readOnly = false;
+      roomInput.removeAttribute('aria-readonly');
+    }
+    roomLabel?.classList.remove('student-room-code-locked');
+    if (joinHelp) joinHelp.textContent = 'QR을 찍었으면 방 번호가 자동 입력됩니다.';
+    qrNotice?.classList.add('hidden');
+  }
+}
+
+configureLandingMode();
+
 $('createRoomBtn').addEventListener('click', async () => {
   if (roleTotal() > 30) return toast('역할 수 합계는 30명을 넘을 수 없습니다.');
   const res = await fetch('/api/rooms', {
@@ -733,4 +783,5 @@ socket.on('disconnect', () => {
 (function initFromUrl() {
   const code = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
   if (code) $('roomCodeInput').value = code;
+  configureLandingMode();
 })();
