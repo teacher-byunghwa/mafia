@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+<title id="t">시민 캐릭터</title><desc id="d">밝게 웃는 시민 학생 캐릭터</desc>
+<rect width="512" height="512" rx="64" fill="#eef6ff"/>
+<circle cx="256" cy="214" r="112" fill="#ffd8b5"/>
+<path d="M149 206c3-82 48-132 109-132 68 0 109 48 112 129-35-16-66-43-87-78-26 38-69 65-134 81z" fill="#4b3621"/>
+<circle cx="214" cy="216" r="10" fill="#23324a"/><circle cx="298" cy="216" r="10" fill="#23324a"/>
+<path d="M216 265c25 25 55 25 80 0" fill="none" stroke="#c05a46" stroke-width="12" stroke-linecap="round"/>
+<path d="M111 460c10-97 65-146 145-146s135 49 145 146" fill="#4f8edc"/>
+<path d="M206 321l50 58 50-58" fill="#fff" opacity=".92"/>
+<circle cx="91" cy="91" r="31" fill="#7fb5ff"/><path d="M74 91h34M91 74v34" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
+</svg>

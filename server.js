@@ -8,12 +8,12 @@ const { Server } = require('socket.io');
 const app = express();
 app.set('trust proxy', true);
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: false }
-});
+const io = new Server(server, { cors: { origin: false } });
 
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 30;
+const ROLE_REVEAL_SECONDS = 15;
+const VOTE_RESULT_SECONDS = 10;
 const rooms = new Map();
 
 app.use(express.json());
@@ -48,7 +48,9 @@ function createRoom(settings = {}) {
       doctor: clampInt(settings.doctor, 0, 5, 1),
       daySeconds: clampInt(settings.daySeconds, 30, 900, 180),
       voteSeconds: clampInt(settings.voteSeconds, 15, 180, 45),
-      nightSeconds: clampInt(settings.nightSeconds, 20, 180, 45)
+      nightSeconds: clampInt(settings.nightSeconds, 20, 180, 45),
+      roleRevealSeconds: ROLE_REVEAL_SECONDS,
+      voteResultSeconds: VOTE_RESULT_SECONDS
     },
     players: new Map(),
     hostSocketId: null,
@@ -57,6 +59,7 @@ function createRoom(settings = {}) {
     phaseEndsAt: null,
     timer: null,
     votes: new Map(),
+    voteResult: null,
     night: {
       policeTargets: new Map(),
       mafiaTargets: new Map(),
@@ -130,17 +133,50 @@ function isHost(room, token) {
   return Boolean(token && room.hostToken === token);
 }
 
+function buildPlayerAction(room, me) {
+  if (!me || !me.alive) return null;
+
+  if (room.phase === 'vote') {
+    return {
+      type: 'vote',
+      targets: alivePlayers(room)
+        .filter(p => p.id !== me.id)
+        .map(p => ({ id: p.id, nickname: p.nickname, isMe: false }))
+    };
+  }
+
+  if (room.phase !== 'night') return null;
+
+  let candidates = [];
+  if (me.role === 'mafia') {
+    candidates = alivePlayers(room).filter(p => p.role !== 'mafia');
+  } else if (me.role === 'police') {
+    candidates = alivePlayers(room).filter(p => p.id !== me.id);
+  } else if (me.role === 'doctor') {
+    candidates = alivePlayers(room);
+  } else {
+    return null;
+  }
+
+  return {
+    type: me.role,
+    targets: candidates.map(p => ({ id: p.id, nickname: p.nickname, isMe: p.id === me.id }))
+  };
+}
+
 function serializeRoomFor(room, playerToken = null, hostToken = null) {
   const me = playerToken ? [...room.players.values()].find(p => p.token === playerToken) : null;
   const host = isHost(room, hostToken);
   const counts = roleCounts(room);
+  const revealActive = room.phase === 'reveal';
+
   const players = [...room.players.values()].map(p => ({
     id: p.id,
     nickname: p.nickname,
     alive: p.alive,
     connected: p.connected,
-    // 교사는 전체 역할을 보고, 마피아 학생은 같은 마피아만 알아볼 수 있다.
-    role: host ? p.role : (me && me.role === 'mafia' && p.role === 'mafia' ? 'mafia' : undefined),
+    // 교사는 항상 역할을 볼 수 있다. 학생에게는 역할 공개 15초 동안 같은 마피아만 표시한다.
+    role: host ? p.role : (revealActive && me && me.role === 'mafia' && p.role === 'mafia' ? 'mafia' : undefined),
     isMe: me ? p.id === me.id : false
   }));
 
@@ -157,14 +193,22 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
     chat: room.chat.slice(-100),
     log: room.log.slice(-60),
     winner: room.winner,
+    voteResult: room.phase === 'voteResult' ? room.voteResult : null,
     me: me ? {
       id: me.id,
       nickname: me.nickname,
-      role: me.role,
+      // 역할 자체도 공개 단계에서만 클라이언트로 보낸다.
+      role: revealActive ? me.role : undefined,
       alive: me.alive,
       connected: me.connected,
-      policeResult: me.policeResult || null
+      policeResult: room.phase === 'day' ? (me.policeResult || null) : null,
+      // 마피아의 밤 공격으로 탈락한 학생에게만 전달되는 개인 알림이다.
+      eliminationNotice: me.eliminationNotice || null,
+      mafiaTeammates: revealActive && me.role === 'mafia'
+        ? alivePlayers(room).filter(p => p.role === 'mafia' && p.id !== me.id).map(p => p.nickname)
+        : undefined
     } : null,
+    action: me ? buildPlayerAction(room, me) : null,
     host
   };
 
@@ -215,16 +259,18 @@ function checkWin(room) {
   if (counts.mafia <= 0) {
     room.phase = 'ended';
     room.winner = 'citizen';
+    room.voteResult = null;
     clearTimer(room);
     addLog(room, '모든 마피아가 탈락했습니다. 시민 팀 승리!');
     emitState(room);
     return true;
   }
 
-  // 사용자 요청을 그대로 적용: 살아 있는 마피아 수가 살아 있는 시민 팀(시민+경찰+의사)의 2배 이상이면 마피아 승리.
+  // 사용자 요청 규칙: 살아 있는 마피아 수가 살아 있는 시민 팀(시민+경찰+의사)의 2배 이상이면 마피아 승리.
   if (counts.citizenTeam <= 0 || counts.mafia >= counts.citizenTeam * 2) {
     room.phase = 'ended';
     room.winner = 'mafia';
+    room.voteResult = null;
     clearTimer(room);
     addLog(room, '마피아가 시민 팀 수의 두 배 이상이 되었습니다. 마피아 승리!');
     emitState(room);
@@ -233,9 +279,19 @@ function checkWin(room) {
   return false;
 }
 
+function startReveal(room) {
+  room.phase = 'reveal';
+  room.round = 0;
+  room.voteResult = null;
+  addLog(room, `역할 공개 시간입니다. ${ROLE_REVEAL_SECONDS}초 동안 자신의 역할을 확인하세요.`);
+  setPhaseTimer(room, ROLE_REVEAL_SECONDS, () => startDay(room));
+  emitState(room);
+}
+
 function startDay(room) {
   if (checkWin(room)) return;
   room.phase = 'day';
+  room.voteResult = null;
   room.votes.clear();
   room.night.policeTargets.clear();
   room.night.mafiaTargets.clear();
@@ -249,6 +305,7 @@ function startDay(room) {
 function startVote(room) {
   if (checkWin(room)) return;
   room.phase = 'vote';
+  room.voteResult = null;
   room.votes.clear();
   addLog(room, '투표 시간입니다. 마피아라고 생각하는 사람 1명을 지목하세요.');
   setPhaseTimer(room, room.settings.voteSeconds, () => resolveVote(room));
@@ -261,15 +318,36 @@ function tallyTargets(map) {
     tally.set(targetId, (tally.get(targetId) || 0) + 1);
   }
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
-  if (!sorted.length) return { targetId: null, tie: false, count: 0 };
-  if (sorted.length > 1 && sorted[0][1] === sorted[1][1]) return { targetId: null, tie: true, count: sorted[0][1] };
-  return { targetId: sorted[0][0], tie: false, count: sorted[0][1] };
+  if (!sorted.length) return { targetId: null, tie: false, count: 0, tally };
+  if (sorted.length > 1 && sorted[0][1] === sorted[1][1]) return { targetId: null, tie: true, count: sorted[0][1], tally };
+  return { targetId: sorted[0][0], tie: false, count: sorted[0][1], tally };
+}
+
+function buildVoteResult(room, result) {
+  const voted = [...result.tally.entries()]
+    .map(([id, votes]) => {
+      const p = room.players.get(id);
+      return p ? { id, nickname: p.nickname, votes } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.votes - a.votes || a.nickname.localeCompare(b.nickname, 'ko'));
+
+  const target = result.targetId ? room.players.get(result.targetId) : null;
+  return {
+    results: voted,
+    tie: result.tie,
+    noVotes: voted.length === 0,
+    eliminatedId: target?.id || null,
+    eliminatedNickname: target?.nickname || null
+  };
 }
 
 function resolveVote(room) {
   if (room.phase !== 'vote') return;
   clearTimer(room);
   const result = tallyTargets(room.votes);
+  room.voteResult = buildVoteResult(room, result);
+
   if (!result.targetId) {
     addLog(room, result.tie ? '최다 득표가 동률이라 아무도 탈락하지 않았습니다.' : '투표가 없어 아무도 탈락하지 않았습니다.');
   } else {
@@ -279,13 +357,23 @@ function resolveVote(room) {
       addLog(room, `${target.nickname} 학생이 투표로 탈락했습니다. 역할은 ${roleLabel(target.role)}였습니다.`);
     }
   }
+
+  room.phase = 'voteResult';
+  addLog(room, `투표 결과를 ${VOTE_RESULT_SECONDS}초 동안 공개합니다.`);
+  setPhaseTimer(room, VOTE_RESULT_SECONDS, () => finishVoteResult(room));
   emitState(room);
+}
+
+function finishVoteResult(room) {
+  if (room.phase !== 'voteResult') return;
+  clearTimer(room);
   if (checkWin(room)) return;
   startNight(room);
 }
 
 function startNight(room) {
   room.phase = 'night';
+  room.voteResult = null;
   // 직전 조사 결과는 낮 동안 유지하고, 새 밤이 시작될 때 초기화한다.
   for (const p of room.players.values()) p.policeResult = null;
   room.night.policeTargets.clear();
@@ -314,19 +402,22 @@ function resolveNight(room) {
   clearTimer(room);
 
   const mafiaChoice = tallyTargets(room.night.mafiaTargets);
-  let killed = null;
-  let saved = false;
 
   if (mafiaChoice.targetId && !mafiaChoice.tie) {
     const target = room.players.get(mafiaChoice.targetId);
     if (target && target.alive && target.role !== 'mafia') {
       const doctorSaved = [...room.night.doctorTargets.values()].includes(target.id);
       if (doctorSaved) {
-        saved = true;
         addLog(room, '밤사이 마피아의 공격이 있었지만 의사가 살려냈습니다.');
       } else {
         target.alive = false;
-        killed = target;
+        target.eliminationNotice = {
+          id: crypto.randomUUID(),
+          reason: 'mafia',
+          round: room.round,
+          at: Date.now(),
+          message: '마피아의 공격을 받아 탈락했습니다!'
+        };
         addLog(room, `${target.nickname} 학생이 밤사이 마피아의 공격으로 탈락했습니다.`);
       }
     }
@@ -377,6 +468,7 @@ function assignRoles(room) {
     p.role = roles[idx];
     p.alive = true;
     p.policeResult = null;
+    p.eliminationNotice = null;
   });
 }
 
@@ -400,7 +492,6 @@ io.on('connection', socket => {
     const room = getRoom(code);
     if (!room) return ack({ ok: false, error: '방을 찾을 수 없습니다.' });
     if (room.phase !== 'lobby') {
-      // 이미 참가한 학생의 재접속은 허용한다.
       const existing = [...room.players.values()].find(p => p.token === playerToken);
       if (!existing) return ack({ ok: false, error: '이미 게임이 시작된 방입니다.' });
     }
@@ -426,7 +517,8 @@ io.on('connection', socket => {
         connected: true,
         alive: true,
         role: null,
-        policeResult: null
+        policeResult: null,
+        eliminationNotice: null
       };
       room.players.set(player.id, player);
     }
@@ -449,7 +541,9 @@ io.on('connection', socket => {
       doctor: clampInt(settings.doctor, 0, 5, room.settings.doctor),
       daySeconds: clampInt(settings.daySeconds, 30, 900, room.settings.daySeconds),
       voteSeconds: clampInt(settings.voteSeconds, 15, 180, room.settings.voteSeconds),
-      nightSeconds: clampInt(settings.nightSeconds, 20, 180, room.settings.nightSeconds)
+      nightSeconds: clampInt(settings.nightSeconds, 20, 180, room.settings.nightSeconds),
+      roleRevealSeconds: ROLE_REVEAL_SECONDS,
+      voteResultSeconds: VOTE_RESULT_SECONDS
     };
     ack({ ok: true });
     emitState(room);
@@ -465,19 +559,21 @@ io.on('connection', socket => {
     } catch (e) {
       return ack({ ok: false, error: e.message });
     }
-    addLog(room, '게임이 시작되었습니다. 역할은 각 학생 화면에서만 확인할 수 있습니다.');
+    addLog(room, '게임이 시작되었습니다. 첫 15초 동안만 각자 역할을 확인합니다.');
     ack({ ok: true });
-    startDay(room);
+    startReveal(room);
   });
 
-  socket.on('host:forcePhase', ({ code, hostToken, phase }, ack = () => {}) => {
+  socket.on('host:next', ({ code, hostToken }, ack = () => {}) => {
     const room = getRoom(code);
     if (!room || !isHost(room, hostToken)) return ack({ ok: false, error: '권한이 없습니다.' });
-    if (room.phase === 'ended' || room.phase === 'lobby') return ack({ ok: false, error: '현재 단계에서는 사용할 수 없습니다.' });
-    clearTimer(room);
-    if (phase === 'vote') startVote(room);
-    else if (phase === 'night') resolveVote(room);
-    else if (phase === 'day') resolveNight(room);
+    if (room.phase === 'ended' || room.phase === 'lobby' || room.phase === 'reveal') {
+      return ack({ ok: false, error: '현재 단계에서는 사용할 수 없습니다.' });
+    }
+    if (room.phase === 'day') startVote(room);
+    else if (room.phase === 'vote') resolveVote(room);
+    else if (room.phase === 'voteResult') finishVoteResult(room);
+    else if (room.phase === 'night') resolveNight(room);
     else return ack({ ok: false, error: '잘못된 단계입니다.' });
     ack({ ok: true });
   });

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+<title id="t">마피아 캐릭터</title><desc id="d">검은 모자와 선글라스를 쓴 장난스러운 마피아 학생 캐릭터</desc>
+<rect width="512" height="512" rx="64" fill="#f4f1f7"/>
+<circle cx="256" cy="222" r="106" fill="#ffd8b5"/>
+<path d="M150 207c7-81 49-124 106-124 63 0 104 43 106 124-32-13-64-38-88-72-27 34-67 58-124 72z" fill="#28232b"/>
+<path d="M146 141h220l-31-76H177z" fill="#1f2026"/><rect x="124" y="137" width="264" height="29" rx="14" fill="#2e3038"/>
+<rect x="174" y="205" width="72" height="42" rx="15" fill="#20242d"/><rect x="266" y="205" width="72" height="42" rx="15" fill="#20242d"/><path d="M246 220h20" stroke="#20242d" stroke-width="11"/>
+<path d="M222 276c24 13 44 13 68 0" fill="none" stroke="#a84942" stroke-width="10" stroke-linecap="round"/>
+<path d="M108 460c13-95 69-142 148-142s135 47 148 142" fill="#282b33"/>
+<path d="M212 325l44 50 44-50" fill="#fff"/><path d="M256 374l-20 72h40z" fill="#8e2636"/>
+<circle cx="406" cy="94" r="36" fill="#cc3349"/><path d="M392 94h28M406 80v28" stroke="#fff" stroke-width="8" stroke-linecap="round" transform="rotate(45 406 94)"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+<title id="t">의사 캐릭터</title><desc id="d">청진기를 착용한 의사 학생 캐릭터</desc>
+<rect width="512" height="512" rx="64" fill="#effbf7"/>
+<circle cx="256" cy="210" r="105" fill="#ffd8b5"/>
+<path d="M151 200c6-78 47-121 105-121 64 0 105 45 106 122-34-10-67-32-91-63-24 30-62 51-120 62z" fill="#5a3e2b"/>
+<circle cx="216" cy="217" r="10" fill="#23324a"/><circle cx="296" cy="217" r="10" fill="#23324a"/>
+<path d="M221 265c23 18 47 18 70 0" fill="none" stroke="#c05a46" stroke-width="11" stroke-linecap="round"/>
+<path d="M103 460c12-97 70-145 153-145s141 48 153 145" fill="#f9fafb" stroke="#d7e0ea" stroke-width="6"/>
+<path d="M212 323l44 50 44-50" fill="#b9e8dc"/>
+<path d="M185 339c-6 52 4 91 38 105M327 339c6 52-4 91-38 105" fill="none" stroke="#3e6673" stroke-width="12" stroke-linecap="round"/>
+<circle cx="256" cy="444" r="23" fill="#6ea7b4"/><circle cx="256" cy="444" r="10" fill="#d9f3f8"/>
+<rect x="329" y="349" width="48" height="48" rx="10" fill="#e84e5b"/><path d="M353 359v28M339 373h28" stroke="#fff" stroke-width="9" stroke-linecap="round"/>
+</svg>

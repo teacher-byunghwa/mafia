@@ -118,6 +118,48 @@
       </article>
     </section>
   </main>
+  <div id="roleRevealOverlay" class="screen-overlay hidden">
+    <div class="overlay-card role-reveal-card">
+      <div class="overlay-kicker">쉿! 나만 확인하세요</div>
+      <img id="roleRevealImage" class="role-illustration" alt="역할 캐릭터" />
+      <h2 id="roleRevealName"></h2>
+      <p id="roleRevealDesc"></p>
+      <div id="mafiaTeamInfo" class="mafia-team hidden"></div>
+      <div id="revealCountdown" class="overlay-countdown"></div>
+      <div class="privacy-note">친구에게 화면을 보여주지 마세요.</div>
+    </div>
+  </div>
+
+  <div id="voteResultOverlay" class="screen-overlay hidden">
+    <div class="overlay-card vote-result-card">
+      <div class="overlay-kicker">🗳️ 투표 결과</div>
+      <h2 id="voteResultHeadline"></h2>
+      <div id="voteResultList" class="vote-result-list"></div>
+      <div id="voteResultCountdown" class="overlay-countdown"></div>
+    </div>
+  </div>
+
+  <div id="eliminationOverlay" class="screen-overlay special-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="eliminationTitle">
+    <div class="overlay-card elimination-card">
+      <div class="big-symbol">💥</div>
+      <div class="overlay-kicker danger-kicker">밤의 결과</div>
+      <h2 id="eliminationTitle">탈락했습니다!</h2>
+      <p id="eliminationMessage">마피아의 공격을 받아 탈락했습니다.</p>
+      <p class="privacy-note">이 알림은 탈락한 학생의 화면에만 표시됩니다.</p>
+      <button id="dismissEliminationBtn" class="secondary overlay-button">확인했어요</button>
+    </div>
+  </div>
+
+  <div id="winnerOverlay" class="screen-overlay winner-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="winnerTitle">
+    <div class="overlay-card winner-card">
+      <div id="winnerSymbol" class="big-symbol">🎉</div>
+      <div class="overlay-kicker">GAME OVER</div>
+      <h2 id="winnerTitle">게임 종료!</h2>
+      <p id="winnerMessage"></p>
+      <div class="winner-ribbon">🏆 승리 팀을 축하합니다! 🏆</div>
+      <button id="dismissWinnerBtn" class="primary overlay-button">결과 확인</button>
+    </div>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
   <script src="/socket.io/socket.io.js"></script>

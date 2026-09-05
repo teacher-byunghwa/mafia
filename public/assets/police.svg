@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="t d">
+<title id="t">경찰 캐릭터</title><desc id="d">경찰 모자를 쓴 학생 캐릭터</desc>
+<rect width="512" height="512" rx="64" fill="#eef2ff"/>
+<circle cx="256" cy="222" r="106" fill="#ffd8b5"/>
+<path d="M157 205c8-77 48-117 101-117 61 0 99 41 101 117-27-19-53-45-75-78-27 33-67 59-127 78z" fill="#3e312a"/>
+<path d="M145 150h222l-22-68H167z" fill="#214a8a"/>
+<path d="M128 153c0-12 10-22 22-22h212c12 0 22 10 22 22v20H128z" fill="#2f67ba"/>
+<path d="M256 91l14 18 22 6-14 18v22l-22-7-22 7v-22l-14-18 22-6z" fill="#ffd54f"/>
+<circle cx="216" cy="224" r="10" fill="#23324a"/><circle cx="296" cy="224" r="10" fill="#23324a"/>
+<path d="M220 272c24 18 48 18 72 0" fill="none" stroke="#c05a46" stroke-width="11" stroke-linecap="round"/>
+<path d="M112 460c12-94 67-141 144-141s132 47 144 141" fill="#234f94"/>
+<path d="M224 337h64v63h-64z" fill="#fff" opacity=".94"/><path d="M242 351h28v34h-28z" fill="#ffd54f"/>
+</svg>
