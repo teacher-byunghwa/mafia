@@ -207,8 +207,10 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
       policeResult: room.phase === 'day' ? (me.policeResult || null) : null,
       // 마피아의 밤 공격으로 탈락한 학생에게만 전달되는 개인 알림이다.
       eliminationNotice: me.eliminationNotice || null,
-      mafiaTeammates: revealActive && me.role === 'mafia'
-        ? alivePlayers(room).filter(p => p.role === 'mafia' && p.id !== me.id).map(p => p.nickname)
+      // 마피아 본인에게만 팀원 이름을 계속 전달한다.
+      // 일반 화면에는 노출하지 않고, 닉네임 길게 누르기에서만 잠깐 확인한다.
+      mafiaTeammates: me.role === 'mafia'
+        ? [...room.players.values()].filter(p => p.role === 'mafia' && p.id !== me.id).map(p => p.nickname)
         : undefined
     } : null,
     action: me ? buildPlayerAction(room, me) : null,

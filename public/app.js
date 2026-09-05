@@ -65,6 +65,58 @@ function unlockAudio() {
 document.addEventListener('pointerdown', unlockAudio, { passive: true });
 document.addEventListener('keydown', unlockAudio);
 
+let secretHoldTimer = null;
+let secretHintTimer = null;
+
+function hideSecretTeamHint() {
+  clearTimeout(secretHintTimer);
+  const hint = $('secretTeamHint');
+  if (!hint) return;
+  hint.classList.add('hidden');
+  hint.textContent = '';
+}
+
+function showSecretTeamHint() {
+  const me = lastState?.me;
+
+  // mafiaTeammates는 마피아 본인 상태에만 존재한다.
+  if (!Array.isArray(me?.mafiaTeammates) || !me?.alive) return;
+  if (['lobby', 'ended'].includes(lastState?.phase)) return;
+
+  const hint = $('secretTeamHint');
+  if (!hint) return;
+
+  hint.textContent = me.mafiaTeammates.length
+    ? `마피아팀원: ${me.mafiaTeammates.join(', ')}`
+    : '마피아팀원: 없음';
+  hint.classList.remove('hidden');
+
+  clearTimeout(secretHintTimer);
+  secretHintTimer = setTimeout(hideSecretTeamHint, 3000);
+}
+
+function startSecretHold(e) {
+  if (e?.button !== undefined && e.button !== 0) return;
+  clearTimeout(secretHoldTimer);
+  secretHoldTimer = setTimeout(showSecretTeamHint, 1500);
+}
+
+function cancelSecretHold() {
+  clearTimeout(secretHoldTimer);
+  secretHoldTimer = null;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const nameEl = $('playerName');
+  if (!nameEl) return;
+
+  nameEl.addEventListener('pointerdown', startSecretHold);
+  nameEl.addEventListener('pointerup', cancelSecretHold);
+  nameEl.addEventListener('pointercancel', cancelSecretHold);
+  nameEl.addEventListener('pointerleave', cancelSecretHold);
+  nameEl.addEventListener('contextmenu', e => e.preventDefault());
+});
+
 function tone(freq, start, duration, gain = 0.075) {
   if (!audioCtx || audioCtx.state !== 'running') return;
   const osc = audioCtx.createOscillator();
@@ -541,6 +593,11 @@ socket.on('state', s => {
   const previousPhase = lastPhase;
   lastState = s;
   lastPhase = s.phase;
+
+  if (!Array.isArray(s.me?.mafiaTeammates) || !s.me?.alive || ['lobby', 'ended'].includes(s.phase)) {
+    hideSecretTeamHint();
+  }
+
   if (!mode) mode = s.host ? 'host' : 'player';
 
   if (previousPhase && previousPhase !== s.phase) playDing('transition');

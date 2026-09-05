@@ -88,7 +88,11 @@
       <div class="grid two">
         <article class="card">
           <div class="row between">
-            <div><div class="eyebrow">ROOM <span id="playerCode"></span></div><h2 id="playerName"></h2></div>
+            <div class="player-identity-wrap">
+              <div class="eyebrow">ROOM <span id="playerCode"></span></div>
+              <h2 id="playerName" class="secret-hold-target"></h2>
+              <div id="secretTeamHint" class="secret-team-hint hidden" aria-live="polite"></div>
+            </div>
             <div id="playerTimer" class="timer">--:--</div>
           </div>
           <div id="playerPhase" class="phase-pill">대기실</div>

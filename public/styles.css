@@ -129,3 +129,33 @@ label { display: grid; gap: 7px; font-weight: 700; color: #334155; }
   font-size: 20px;
   font-weight: 950;
 }
+
+
+/* v2.8: 마피아 전용 숨은 팀원 확인 */
+.player-identity-wrap {
+  position: relative;
+  min-width: 0;
+}
+.secret-hold-target {
+  display: inline-block;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.secret-team-hint {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 35;
+  max-width: min(360px, 76vw);
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, .95);
+  color: #f8fafc;
+  box-shadow: 0 7px 20px rgba(15, 23, 42, .16);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  white-space: normal;
+  pointer-events: none;
+}
