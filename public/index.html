@@ -10,6 +10,7 @@
   <main class="shell">
     <header class="hero">
       <div>
+        <div class="creator-credit">만든이: 김병화 선생님</div>
         <div class="eyebrow">CLASSROOM REALTIME GAME</div>
         <h1>우리 반 마피아</h1>
         <p>QR로 입장하고, 닉네임으로 참여하는 최대 30인 실시간 마피아 게임</p>
@@ -136,6 +137,18 @@
       <h2 id="voteResultHeadline"></h2>
       <div id="voteResultList" class="vote-result-list"></div>
       <div id="voteResultCountdown" class="overlay-countdown"></div>
+    </div>
+  </div>
+
+
+  <div id="nightResultOverlay" class="screen-overlay night-result-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="nightResultTitle">
+    <div class="overlay-card night-result-card">
+      <div id="nightResultSymbol" class="big-symbol">🌙</div>
+      <div class="overlay-kicker">밤의 결과</div>
+      <h2 id="nightResultTitle">밤이 지나갔습니다</h2>
+      <p id="nightResultMessage"></p>
+      <div id="nightResultRole" class="night-role-badge hidden"></div>
+      <div id="nightResultCountdown" class="overlay-countdown"></div>
     </div>
   </div>
 

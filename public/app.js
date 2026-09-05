@@ -16,6 +16,7 @@ let eliminationOverlayVisible = false;
 let eliminationAutoCloseTimer = null;
 let pendingWinnerState = null;
 let shownWinnerKey = null;
+let lastNightOutcomeId = null;
 
 const roleText = {
   mafia: ['마피아', '밤에 시민 팀 한 명을 골라 공격하세요.'],
@@ -35,7 +36,8 @@ const phaseText = {
   day: '낮 · 토론',
   vote: '투표',
   voteResult: '투표 결과',
-  night: '밤 · 역할 행동',
+  night: '밤 · 모두 선택',
+  nightResult: '밤의 결과',
   ended: '게임 종료'
 };
 
@@ -191,7 +193,19 @@ $('startBtn').addEventListener('click', () => {
 
 $('nextBtn').addEventListener('click', () => {
   if (!lastState) return;
-  socket.emit('host:next', { code: roomCode, hostToken }, r => { if (!r.ok) toast(r.error); });
+
+  if (lastState.phase === 'night') {
+    const submitted = lastState.nightSummary?.submitted ?? 0;
+    const required = lastState.nightSummary?.required ?? 0;
+    const ok = confirm(
+      `밤을 강제로 진행할까요?\n\n현재 ${submitted}/${required}명이 선택했습니다.\n미선택 학생의 행동은 없는 것으로 처리됩니다.`
+    );
+    if (!ok) return;
+  }
+
+  socket.emit('host:next', { code: roomCode, hostToken }, r => {
+    if (!r.ok) toast(r.error);
+  });
 });
 
 $('clearChatBtn').addEventListener('click', () => {
@@ -239,10 +253,12 @@ function updateCountdown() {
   clearInterval(countdownTimer);
   const render = () => {
     if (!lastState?.phaseEndsAt) {
-      if (mode === 'host') $('hostTimer').textContent = '--:--';
-      if (mode === 'player') $('playerTimer').textContent = '--:--';
+      const expiredNight = lastState?.phase === 'night' && lastState?.nightExpired;
+      if (mode === 'host') $('hostTimer').textContent = expiredNight ? '00:00' : '--:--';
+      if (mode === 'player') $('playerTimer').textContent = expiredNight ? '00:00' : '--:--';
       $('revealCountdown').textContent = '';
       $('voteResultCountdown').textContent = '';
+      $('nightResultCountdown').textContent = '';
       return;
     }
     const ms = Math.max(0, lastState.phaseEndsAt - Date.now());
@@ -252,6 +268,7 @@ function updateCountdown() {
     if (mode === 'player') $('playerTimer').textContent = txt;
     if (lastState.phase === 'reveal') $('revealCountdown').textContent = `${sec}초 후 역할이 숨겨집니다`;
     if (lastState.phase === 'voteResult') $('voteResultCountdown').textContent = `${sec}초 후 다음 단계로 이동합니다`;
+    if (lastState.phase === 'nightResult') $('nightResultCountdown').textContent = `${sec}초 후 다음 단계로 이동합니다`;
   };
   render();
   countdownTimer = setInterval(render, 250);
@@ -266,17 +283,26 @@ function renderHost(s) {
   renderLog($('hostLog'), s);
   renderChat($('hostChat'), s);
   $('startBtn').classList.toggle('hidden', s.phase !== 'lobby');
-  $('nextBtn').classList.toggle('hidden', !['day','vote','voteResult','night'].includes(s.phase));
+  $('nextBtn').classList.toggle('hidden', !['day','vote','voteResult','night','nightResult'].includes(s.phase));
   $('nextBtn').textContent = s.phase === 'day' ? '투표로 이동'
     : s.phase === 'vote' ? '투표 즉시 마감'
-    : s.phase === 'voteResult' ? '결과 화면 즉시 마감'
-    : '밤 즉시 마감';
+    : s.phase === 'voteResult' ? '투표 결과 즉시 마감'
+    : s.phase === 'night' ? '밤 강제 진행'
+    : '밤 결과 즉시 마감';
 
   if (s.phase === 'lobby') {
     const expected = s.settings.mafia + s.settings.citizen + s.settings.police + s.settings.doctor;
     $('hostNotice').textContent = `설정된 역할 합계 ${expected}명 · 현재 접속 ${s.playerCount}명. 두 수가 같아야 시작할 수 있습니다.`;
   } else if (s.phase === 'reveal') {
     $('hostNotice').textContent = '학생들이 15초 동안 자신의 역할을 확인하고 있습니다. 이 단계는 자동으로 끝납니다.';
+  } else if (s.phase === 'night') {
+    const submitted = s.nightSummary?.submitted ?? 0;
+    const required = s.nightSummary?.required ?? 0;
+    $('hostNotice').textContent = s.nightExpired
+      ? `밤 시간이 끝났습니다. ${submitted}/${required}명 선택 완료. 기다리거나, 교사만 '밤 강제 진행'을 눌러 현재 제출된 행동만 반영할 수 있습니다.`
+      : `밤 선택 ${submitted}/${required}명 완료. 원칙적으로 전원이 선택하면 자동 진행되며, 교사는 필요할 때만 '밤 강제 진행'을 사용할 수 있습니다.`;
+  } else if (s.phase === 'nightResult') {
+    $('hostNotice').textContent = '밤의 결과를 모두에게 공개하고 있습니다.';
   } else if (s.phase === 'ended') {
     $('hostNotice').innerHTML = `<span class="winner">${s.winner === 'mafia' ? '🕶️ 마피아 승리' : '🏫 시민 팀 승리'}</span>`;
   } else {
@@ -324,6 +350,44 @@ function renderVoteResult(s) {
   $('voteResultList').innerHTML = vr.results.length
     ? vr.results.map((r, idx) => `<div class="vote-result-row ${idx === 0 ? 'top' : ''}"><span>${esc(r.nickname)}</span><b>${r.votes}표</b></div>`).join('')
     : '<div class="vote-result-empty">제출된 투표가 없습니다.</div>';
+  overlay.classList.remove('hidden');
+}
+
+function renderNightOutcome(s) {
+  const overlay = $('nightResultOverlay');
+  const outcome = s.nightOutcome;
+  if (s.phase !== 'nightResult' || !outcome) {
+    overlay.classList.add('hidden');
+    return;
+  }
+
+  if (outcome.id && outcome.id !== lastNightOutcomeId) {
+    lastNightOutcomeId = outcome.id;
+    playDing('transition');
+  }
+
+  const roleBadge = $('nightResultRole');
+  if (outcome.kind === 'eliminated') {
+    $('nightResultSymbol').textContent = '🌙💥';
+    $('nightResultTitle').textContent = `${outcome.nickname || '한 학생'} 탈락`;
+    $('nightResultMessage').textContent = outcome.message || '밤에 한 학생이 탈락했습니다.';
+    const roleName = roleText[outcome.role]?.[0] || outcome.role || '';
+    roleBadge.textContent = roleName ? `역할: ${roleName}` : '';
+    roleBadge.classList.toggle('hidden', !roleName);
+  } else if (outcome.kind === 'saved') {
+    $('nightResultSymbol').textContent = '🌙🩺';
+    $('nightResultTitle').textContent = '의사가 구했습니다!';
+    $('nightResultMessage').textContent = outcome.message || '마피아가 공격하려던 학생을 의사가 구했습니다.';
+    roleBadge.classList.add('hidden');
+    roleBadge.textContent = '';
+  } else {
+    $('nightResultSymbol').textContent = '🌙✨';
+    $('nightResultTitle').textContent = '아무도 탈락하지 않았습니다';
+    $('nightResultMessage').textContent = outcome.message || '조용한 밤이 지나갔습니다.';
+    roleBadge.classList.add('hidden');
+    roleBadge.textContent = '';
+  }
+
   overlay.classList.remove('hidden');
 }
 
@@ -399,17 +463,11 @@ function renderAction(s) {
     title = '🗳️ 마피아라고 생각하는 사람을 지목하세요';
     help = '한 번 선택한 뒤에도 투표 시간이 끝나기 전까지 다른 사람으로 바꿀 수 있습니다.';
     event = 'vote:submit';
-  } else if (action.type === 'mafia') {
-    title = '🌙 밤 행동';
-    help = '공격할 대상을 한 명 선택하세요.';
-    event = 'night:action';
-  } else if (action.type === 'police') {
-    title = '🌙 밤 행동';
-    help = '조사할 대상을 한 명 선택하세요. 결과는 다음 낮에 내 화면에만 나타납니다.';
-    event = 'night:action';
-  } else if (action.type === 'doctor') {
-    title = '🌙 밤 행동';
-    help = '오늘 밤 보호할 대상을 한 명 선택하세요. 자기 자신도 선택할 수 있습니다.';
+  } else if (action.type === 'night') {
+    title = '🌙 밤 선택 · 한 명을 고르세요';
+    help = action.submitted
+      ? '선택 완료! 다른 사람으로 바꾸고 싶으면 다시 누를 수 있습니다. 생존자 전원이 선택하면 자동으로 다음 단계로 넘어갑니다.'
+      : '살아 있는 모든 학생이 한 명씩 선택해야 합니다. 타이머가 0초가 되어도 선택 화면은 사라지지 않습니다.';
     event = 'night:action';
   } else {
     card.classList.add('hidden');
@@ -419,13 +477,18 @@ function renderAction(s) {
   card.classList.remove('hidden');
   $('actionTitle').textContent = title;
   $('actionHelp').textContent = help;
-  $('actionTargets').innerHTML = action.targets.map(p => `<button class="target-btn" data-id="${p.id}">${esc(p.nickname)}${p.isMe ? ' · 나' : ''}</button>`).join('');
+  $('actionTargets').innerHTML = action.targets.map(p => {
+    const selected = action.selectedTargetId === p.id ? ' selected' : '';
+    return `<button class="target-btn${selected}" data-id="${p.id}">${esc(p.nickname)}${p.isMe ? ' · 나' : ''}</button>`;
+  }).join('');
+
   [...$('actionTargets').querySelectorAll('button')].forEach(btn => btn.addEventListener('click', () => {
     const payload = { code: roomCode, playerToken, targetId: btn.dataset.id };
     socket.emit(event, payload, r => {
       if (!r.ok) return toast(r.error);
       if (action.type === 'vote') playDing('vote');
-      toast(action.type === 'vote' ? '투표가 제출되었습니다.' : '선택이 제출되었습니다.');
+      else playDing('vote');
+      toast(action.type === 'vote' ? '투표가 제출되었습니다.' : '밤 선택이 완료되었습니다.');
     });
   }));
 }
@@ -456,10 +519,16 @@ function renderPlayer(s) {
     $('playerNotice').innerHTML = `🔎 ${esc(me.policeResult.targetNickname)} 조사 결과: <b>${me.policeResult.isMafia ? '마피아입니다.' : '마피아가 아닙니다.'}</b>`;
   } else if (s.phase === 'voteResult') {
     $('playerNotice').textContent = '투표 결과를 확인하세요.';
+  } else if (s.phase === 'nightResult') {
+    $('playerNotice').textContent = '밤의 결과를 확인하세요.';
   } else {
     $('playerNotice').textContent = s.phase === 'day' ? '친구들과 이야기하며 마피아를 추리하세요.'
       : s.phase === 'vote' ? '투표를 제출하세요.'
-      : s.phase === 'night' ? '밤 행동이 있는 학생은 조용히 선택하세요.' : '';
+      : s.phase === 'night'
+        ? (s.nightExpired
+            ? (s.action?.submitted ? '시간이 끝났습니다. 아직 선택하지 않은 친구가 완료할 때까지 기다리세요.' : '시간이 끝났지만 선택할 수 있습니다. 반드시 한 명을 선택하세요.')
+            : '모든 생존 학생이 한 명을 선택해야 다음 라운드로 넘어갑니다.')
+        : '';
   }
 
   const canChat = me?.alive && ['lobby','day'].includes(s.phase);
@@ -479,9 +548,11 @@ socket.on('state', s => {
   if (s.host) {
     renderHost(s);
     renderVoteResult(s);
+    renderNightOutcome(s);
     $('roleRevealOverlay').classList.add('hidden');
   } else {
     renderPlayer(s);
+    renderNightOutcome(s);
     renderEliminationNotice(s);
   }
   renderWinnerOverlay(s);

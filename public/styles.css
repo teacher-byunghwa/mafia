@@ -102,3 +102,30 @@ label { display: grid; gap: 7px; font-weight: 700; color: #334155; }
 .winner-card h2 { color: #8a5b00; }
 .winner-ribbon { margin: 18px auto 4px; padding: 12px 14px; border-radius: 14px; background: #fff7d6; border: 1px solid #f6d77a; font-weight: 950; }
 .overlay-button { margin-top: 20px; min-width: 150px; }
+
+
+/* v2.4: 만든이 표시, 밤 선택/결과 */
+.creator-credit {
+  display: inline-block;
+  margin-bottom: 5px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #64748b;
+}
+.target-btn.selected {
+  border-color: #1d4ed8;
+  background: #dfeaff;
+  box-shadow: inset 0 0 0 2px rgba(29, 78, 216, .12);
+}
+.night-result-overlay { z-index: 65; background: rgba(8, 15, 31, .84); }
+.night-result-card { border: 3px solid #c7d2fe; }
+.night-role-badge {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #111827;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 950;
+}

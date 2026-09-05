@@ -1,6 +1,6 @@
 {
   "name": "mafia-classroom",
-  "version": "2.2.0",
+  "version": "2.5.0",
   "private": true,
   "description": "Realtime classroom Mafia game for up to 30 players, with timed role reveal, vote results, sound effects, and end-game alerts",
   "main": "server.js",

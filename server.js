@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 30;
 const ROLE_REVEAL_SECONDS = 15;
 const VOTE_RESULT_SECONDS = 10;
+const NIGHT_RESULT_SECONDS = 6;
 const rooms = new Map();
 
 app.use(express.json());
@@ -61,10 +62,13 @@ function createRoom(settings = {}) {
     votes: new Map(),
     voteResult: null,
     night: {
+      allTargets: new Map(),
       policeTargets: new Map(),
       mafiaTargets: new Map(),
-      doctorTargets: new Map()
+      doctorTargets: new Map(),
+      expired: false
     },
+    nightOutcome: null,
     chat: [],
     log: [],
     winner: null
@@ -147,20 +151,17 @@ function buildPlayerAction(room, me) {
 
   if (room.phase !== 'night') return null;
 
-  let candidates = [];
-  if (me.role === 'mafia') {
-    candidates = alivePlayers(room).filter(p => p.role !== 'mafia');
-  } else if (me.role === 'police') {
-    candidates = alivePlayers(room).filter(p => p.id !== me.id);
-  } else if (me.role === 'doctor') {
-    candidates = alivePlayers(room);
-  } else {
-    return null;
-  }
-
+  // 밤에는 살아 있는 모든 학생에게 완전히 같은 선택 화면을 보여 준다.
+  // 실제 효과는 서버가 각자의 숨겨진 역할에 따라 처리한다.
   return {
-    type: me.role,
-    targets: candidates.map(p => ({ id: p.id, nickname: p.nickname, isMe: p.id === me.id }))
+    type: 'night',
+    submitted: room.night.allTargets.has(me.id),
+    selectedTargetId: room.night.allTargets.get(me.id) || null,
+    targets: alivePlayers(room).map(p => ({
+      id: p.id,
+      nickname: p.nickname,
+      isMe: p.id === me.id
+    }))
   };
 }
 
@@ -194,6 +195,8 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
     log: room.log.slice(-60),
     winner: room.winner,
     voteResult: room.phase === 'voteResult' ? room.voteResult : null,
+    nightOutcome: room.phase === 'nightResult' ? room.nightOutcome : null,
+    nightExpired: room.phase === 'night' ? room.night.expired : false,
     me: me ? {
       id: me.id,
       nickname: me.nickname,
@@ -214,9 +217,9 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
 
   if (host) {
     state.nightSummary = {
-      policeSubmitted: room.night.policeTargets.size,
-      mafiaSubmitted: room.night.mafiaTargets.size,
-      doctorSubmitted: room.night.doctorTargets.size
+      submitted: room.night.allTargets.size,
+      required: alivePlayers(room).length,
+      expired: room.night.expired
     };
     state.voteSubmitted = room.votes.size;
   }
@@ -266,13 +269,15 @@ function checkWin(room) {
     return true;
   }
 
-  // 사용자 요청 규칙: 살아 있는 마피아 수가 살아 있는 시민 팀(시민+경찰+의사)의 2배 이상이면 마피아 승리.
-  if (counts.citizenTeam <= 0 || counts.mafia >= counts.citizenTeam * 2) {
+  // 표준 마피아 규칙: 살아 있는 마피아 수가 살아 있는 시민 팀
+  // (일반 시민 + 경찰 + 의사) 수와 같거나 많아지는 순간 마피아 승리.
+  // 예: 1:1, 2:2, 2:1이면 즉시 마피아 승리.
+  if (counts.citizenTeam <= 0 || counts.mafia >= counts.citizenTeam) {
     room.phase = 'ended';
     room.winner = 'mafia';
     room.voteResult = null;
     clearTimer(room);
-    addLog(room, '마피아가 시민 팀 수의 두 배 이상이 되었습니다. 마피아 승리!');
+    addLog(room, '남은 마피아 수가 시민 팀 수와 같거나 많아졌습니다. 마피아 승리!');
     emitState(room);
     return true;
   }
@@ -293,9 +298,12 @@ function startDay(room) {
   room.phase = 'day';
   room.voteResult = null;
   room.votes.clear();
+  room.night.allTargets.clear();
   room.night.policeTargets.clear();
   room.night.mafiaTargets.clear();
   room.night.doctorTargets.clear();
+  room.night.expired = false;
+  room.nightOutcome = null;
   room.round += 1;
   addLog(room, `${room.round}라운드 낮이 시작되었습니다.`);
   setPhaseTimer(room, room.settings.daySeconds, () => startVote(room));
@@ -374,41 +382,94 @@ function finishVoteResult(room) {
 function startNight(room) {
   room.phase = 'night';
   room.voteResult = null;
+  room.nightOutcome = null;
   // 직전 조사 결과는 낮 동안 유지하고, 새 밤이 시작될 때 초기화한다.
   for (const p of room.players.values()) p.policeResult = null;
+  room.night.allTargets.clear();
   room.night.policeTargets.clear();
   room.night.mafiaTargets.clear();
   room.night.doctorTargets.clear();
-  addLog(room, '밤이 되었습니다. 경찰·마피아·의사는 각자 행동을 선택하세요.');
-  setPhaseTimer(room, room.settings.nightSeconds, () => resolveNight(room));
+  room.night.expired = false;
+  addLog(room, '밤이 되었습니다. 살아 있는 모든 학생은 한 명을 선택해야 합니다.');
+
+  // 밤 타이머는 안내용이다. 0초가 되어도 밤은 끝나지 않으며,
+  // 생존자 전원이 선택해야만 다음 단계로 넘어간다.
+  setPhaseTimer(room, room.settings.nightSeconds, () => {
+    if (room.phase !== 'night') return;
+    room.night.expired = true;
+    addLog(room, '밤 선택 시간이 끝났습니다. 아직 선택하지 않은 학생이 있으면 전원이 완료할 때까지 기다립니다.');
+    emitState(room);
+  });
   emitState(room);
 }
 
-function actionRequiredPlayers(room, role) {
-  return alivePlayers(room).filter(p => p.role === role);
-}
-
 function allNightActionsSubmitted(room) {
-  const police = actionRequiredPlayers(room, 'police').length;
-  const mafia = actionRequiredPlayers(room, 'mafia').length;
-  const doctor = actionRequiredPlayers(room, 'doctor').length;
-  return room.night.policeTargets.size >= police &&
-    room.night.mafiaTargets.size >= mafia &&
-    room.night.doctorTargets.size >= doctor;
+  return room.night.allTargets.size >= alivePlayers(room).length;
 }
 
-function resolveNight(room) {
+function tallyMafiaCitizenTargets(room) {
+  const tally = new Map();
+  for (const targetId of room.night.mafiaTargets.values()) {
+    const target = room.players.get(targetId);
+    // 마피아의 표는 시민 팀(일반 시민·경찰·의사)을 향한 경우에만 실제 공격표로 계산한다.
+    if (!target || !target.alive || target.role === 'mafia') continue;
+    tally.set(targetId, (tally.get(targetId) || 0) + 1);
+  }
+  if (!tally.size) return { targetId: null, count: 0, tied: false };
+
+  const entries = [...tally.entries()];
+  const max = Math.max(...entries.map(([, count]) => count));
+  const leaders = entries.filter(([, count]) => count === max);
+
+  // 공동 최다 득표일 때는 공동 1위 중 한 명을 무작위로 선택한다.
+  const [targetId] = leaders[Math.floor(Math.random() * leaders.length)];
+  return { targetId, count: max, tied: leaders.length > 1 };
+}
+
+function finishNightResult(room) {
+  if (room.phase !== 'nightResult') return;
+  clearTimer(room);
+  if (checkWin(room)) return;
+  startDay(room);
+}
+
+function resolveNight(room, force = false) {
   if (room.phase !== 'night') return;
+  if (!force && !allNightActionsSubmitted(room)) {
+    emitState(room);
+    return;
+  }
+
+  if (force && !allNightActionsSubmitted(room)) {
+    const submitted = room.night.allTargets.size;
+    const required = alivePlayers(room).length;
+    addLog(room, `교사가 밤을 강제 진행했습니다. ${submitted}/${required}명의 선택만 반영합니다.`);
+  }
+
   clearTimer(room);
 
-  const mafiaChoice = tallyTargets(room.night.mafiaTargets);
+  const mafiaChoice = tallyMafiaCitizenTargets(room);
+  let outcome = {
+    id: crypto.randomUUID(),
+    kind: 'none',
+    round: room.round,
+    at: Date.now(),
+    nickname: null,
+    role: null,
+    message: '밤사이 아무도 탈락하지 않았습니다.'
+  };
 
-  if (mafiaChoice.targetId && !mafiaChoice.tie) {
+  if (mafiaChoice.targetId) {
     const target = room.players.get(mafiaChoice.targetId);
     if (target && target.alive && target.role !== 'mafia') {
       const doctorSaved = [...room.night.doctorTargets.values()].includes(target.id);
       if (doctorSaved) {
-        addLog(room, '밤사이 마피아의 공격이 있었지만 의사가 살려냈습니다.');
+        outcome.kind = 'saved';
+        outcome.nickname = target.nickname;
+        // 보호에 성공한 경우에만 공격 대상의 이름을 공개한다.
+        // 누가 의사인지, 의사가 누구를 선택했는지는 절대 공개하지 않는다.
+        outcome.message = `마피아는 ${target.nickname} 학생을 공격하려 했지만 의사가 구했습니다.`;
+        addLog(room, `마피아는 ${target.nickname} 학생을 공격하려 했지만 의사가 구했습니다.`);
       } else {
         target.alive = false;
         target.eliminationNotice = {
@@ -418,13 +479,15 @@ function resolveNight(room) {
           at: Date.now(),
           message: '마피아의 공격을 받아 탈락했습니다!'
         };
-        addLog(room, `${target.nickname} 학생이 밤사이 마피아의 공격으로 탈락했습니다.`);
+        outcome.kind = 'eliminated';
+        outcome.nickname = target.nickname;
+        outcome.role = target.role;
+        outcome.message = `${target.nickname} 학생이 밤에 탈락했습니다. 역할은 ${roleLabel(target.role)}였습니다.`;
+        addLog(room, `${target.nickname} 학생이 밤사이 마피아의 공격으로 탈락했습니다. 역할은 ${roleLabel(target.role)}였습니다.`);
       }
     }
-  } else if (mafiaChoice.tie) {
-    addLog(room, '마피아들의 선택이 동률이라 밤사이 아무도 공격받지 않았습니다.');
   } else {
-    addLog(room, '밤사이 마피아의 공격 대상이 정해지지 않았습니다.');
+    addLog(room, '밤사이 실제 마피아 공격 대상이 정해지지 않았습니다.');
   }
 
   // 경찰 결과는 해당 경찰 개인에게만 보이도록 저장한다.
@@ -440,12 +503,11 @@ function resolveNight(room) {
     }
   }
 
+  room.nightOutcome = outcome;
+  room.phase = 'nightResult';
+  addLog(room, `밤의 결과를 ${NIGHT_RESULT_SECONDS}초 동안 공개합니다.`);
+  setPhaseTimer(room, NIGHT_RESULT_SECONDS, () => finishNightResult(room));
   emitState(room);
-  if (checkWin(room)) return;
-
-  setTimeout(() => {
-    if (room.phase === 'night' && !room.winner) startDay(room);
-  }, 2500);
 }
 
 function assignRoles(room) {
@@ -573,7 +635,12 @@ io.on('connection', socket => {
     if (room.phase === 'day') startVote(room);
     else if (room.phase === 'vote') resolveVote(room);
     else if (room.phase === 'voteResult') finishVoteResult(room);
-    else if (room.phase === 'night') resolveNight(room);
+    else if (room.phase === 'night') {
+      // 교사만 사용할 수 있는 강제 진행:
+      // 미선택자는 행동하지 않은 것으로 처리하고 현재까지 제출된 행동만 반영한다.
+      resolveNight(room, true);
+    }
+    else if (room.phase === 'nightResult') finishNightResult(room);
     else return ack({ ok: false, error: '잘못된 단계입니다.' });
     ack({ ok: true });
   });
@@ -616,26 +683,29 @@ io.on('connection', socket => {
 
   socket.on('night:action', ({ code, playerToken, targetId }, ack = () => {}) => {
     const room = getRoom(code);
-    if (!room || room.phase !== 'night') return ack({ ok: false, error: '지금은 밤 행동 시간이 아닙니다.' });
+    if (!room || room.phase !== 'night') return ack({ ok: false, error: '지금은 밤 선택 시간이 아닙니다.' });
     const player = [...room.players.values()].find(p => p.token === playerToken);
     const target = room.players.get(targetId);
-    if (!player || !player.alive) return ack({ ok: false, error: '행동할 수 없습니다.' });
+    if (!player || !player.alive) return ack({ ok: false, error: '선택할 수 없습니다.' });
     if (!target || !target.alive) return ack({ ok: false, error: '유효하지 않은 대상입니다.' });
 
+    // 모든 생존자는 반드시 한 명을 선택한다. 시민의 선택은 결과에 영향을 주지 않는다.
+    room.night.allTargets.set(player.id, target.id);
+
     if (player.role === 'police') {
-      if (target.id === player.id) return ack({ ok: false, error: '자기 자신은 조사할 수 없습니다.' });
       room.night.policeTargets.set(player.id, target.id);
     } else if (player.role === 'mafia') {
-      if (target.role === 'mafia') return ack({ ok: false, error: '마피아는 다른 마피아를 공격할 수 없습니다.' });
+      // 화면은 모두에게 동일하게 보이도록 어떤 생존자든 선택할 수 있게 하되,
+      // 실제 공격 득표 계산에서는 마피아 대상 표를 제외한다.
       room.night.mafiaTargets.set(player.id, target.id);
     } else if (player.role === 'doctor') {
       room.night.doctorTargets.set(player.id, target.id);
-    } else {
-      return ack({ ok: false, error: '이 역할은 밤 행동이 없습니다.' });
     }
+    // 일반 시민은 allTargets에만 기록되며 아무 효과도 없다.
 
-    ack({ ok: true });
+    ack({ ok: true, submitted: room.night.allTargets.size, required: alivePlayers(room).length });
     emitState(room);
+
     if (allNightActionsSubmitted(room)) resolveNight(room);
   });
 
