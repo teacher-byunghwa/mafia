@@ -1,0 +1,19 @@
+{
+  "name": "mafia-classroom",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Realtime classroom Mafia game for up to 30 players",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.1"
+  }
+}

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>우리 반 마피아</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <div class="eyebrow">CLASSROOM REALTIME GAME</div>
+        <h1>우리 반 마피아</h1>
+        <p>QR로 입장하고, 닉네임으로 참여하는 최대 30인 실시간 마피아 게임</p>
+      </div>
+      <div id="connectionBadge" class="badge">연결 중…</div>
+    </header>
+
+    <section id="landing" class="grid two">
+      <article class="card">
+        <h2>👩‍🏫 교사용 방 만들기</h2>
+        <p class="muted">역할 수와 시간을 정한 뒤 방을 만드세요.</p>
+        <div class="form-grid">
+          <label>마피아 <input id="mafiaCount" type="number" min="1" max="10" value="2"></label>
+          <label>시민 <input id="citizenCount" type="number" min="0" max="29" value="6"></label>
+          <label>경찰 <input id="policeCount" type="number" min="0" max="5" value="1"></label>
+          <label>의사 <input id="doctorCount" type="number" min="0" max="5" value="1"></label>
+          <label>낮 토론(초) <input id="daySeconds" type="number" min="30" max="900" value="180"></label>
+          <label>투표(초) <input id="voteSeconds" type="number" min="15" max="180" value="45"></label>
+          <label>밤 행동(초) <input id="nightSeconds" type="number" min="20" max="180" value="45"></label>
+        </div>
+        <button id="createRoomBtn" class="primary">방 만들기</button>
+      </article>
+
+      <article class="card">
+        <h2>🧑‍🎓 학생 입장</h2>
+        <p class="muted">QR을 찍었으면 방 번호가 자동 입력됩니다.</p>
+        <label>방 번호 <input id="roomCodeInput" maxlength="6" placeholder="예: AB12CD"></label>
+        <label>닉네임 <input id="nicknameInput" maxlength="18" placeholder="예: 토끼반장"></label>
+        <button id="joinRoomBtn" class="secondary">입장하기</button>
+      </article>
+    </section>
+
+    <section id="hostView" class="hidden">
+      <div class="grid host-top">
+        <article class="card qr-card">
+          <div class="row between"><h2>교사용 진행 화면</h2><span id="hostCode" class="room-code"></span></div>
+          <img id="qrImage" class="qr" alt="학생 입장 QR 코드" />
+          <div class="copy-row">
+            <input id="joinUrl" readonly>
+            <button id="copyUrlBtn">링크 복사</button>
+          </div>
+          <p class="small">학생들은 QR을 찍고 닉네임만 입력하면 됩니다.</p>
+        </article>
+
+        <article class="card">
+          <div class="row between"><h2>게임 상태</h2><div id="hostTimer" class="timer">--:--</div></div>
+          <div id="hostPhase" class="phase-pill">대기실</div>
+          <div id="hostCounts" class="stats"></div>
+          <div class="button-row">
+            <button id="startBtn" class="primary">게임 시작</button>
+            <button id="nextBtn" class="secondary hidden">다음 단계 진행</button>
+            <button id="clearChatBtn" class="ghost">채팅 지우기</button>
+          </div>
+          <div id="hostNotice" class="notice"></div>
+        </article>
+      </div>
+
+      <div class="grid two">
+        <article class="card">
+          <h3>참가 학생 <span id="playerCount"></span></h3>
+          <div id="hostPlayers" class="player-list"></div>
+        </article>
+        <article class="card">
+          <h3>진행 기록</h3>
+          <div id="hostLog" class="log-box"></div>
+        </article>
+      </div>
+      <article class="card">
+        <h3>공개 채팅</h3>
+        <div id="hostChat" class="chat-box"></div>
+      </article>
+    </section>
+
+    <section id="playerView" class="hidden">
+      <div class="grid two">
+        <article class="card">
+          <div class="row between">
+            <div><div class="eyebrow">ROOM <span id="playerCode"></span></div><h2 id="playerName"></h2></div>
+            <div id="playerTimer" class="timer">--:--</div>
+          </div>
+          <div id="playerPhase" class="phase-pill">대기실</div>
+          <div id="roleCard" class="role-card hidden"></div>
+          <div id="playerNotice" class="notice"></div>
+          <div id="playerCounts" class="stats"></div>
+        </article>
+
+        <article class="card">
+          <h3>참가자</h3>
+          <div id="playerList" class="player-list"></div>
+        </article>
+      </div>
+
+      <article id="actionCard" class="card hidden">
+        <h3 id="actionTitle">행동 선택</h3>
+        <p id="actionHelp" class="muted"></p>
+        <div id="actionTargets" class="target-grid"></div>
+      </article>
+
+      <article class="card">
+        <div class="row between"><h3>공개 채팅</h3><span class="small">대기실·낮에만 사용</span></div>
+        <div id="playerChat" class="chat-box"></div>
+        <div class="chat-input-row">
+          <input id="chatInput" maxlength="160" placeholder="친구들과 이야기해 보세요">
+          <button id="sendChatBtn" class="secondary">보내기</button>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
