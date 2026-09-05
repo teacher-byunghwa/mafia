@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 30;
 const ROLE_REVEAL_SECONDS = 15;
 const VOTE_RESULT_SECONDS = 10;
+const REVOTE_SECONDS = 40;
 const NIGHT_RESULT_SECONDS = 6;
 const rooms = new Map();
 
@@ -51,7 +52,8 @@ function createRoom(settings = {}) {
       voteSeconds: clampInt(settings.voteSeconds, 15, 180, 45),
       nightSeconds: clampInt(settings.nightSeconds, 20, 180, 45),
       roleRevealSeconds: ROLE_REVEAL_SECONDS,
-      voteResultSeconds: VOTE_RESULT_SECONDS
+      voteResultSeconds: VOTE_RESULT_SECONDS,
+      revoteSeconds: REVOTE_SECONDS
     },
     players: new Map(),
     hostSocketId: null,
@@ -61,6 +63,9 @@ function createRoom(settings = {}) {
     timer: null,
     votes: new Map(),
     voteResult: null,
+    revoteCandidates: [],
+    revoteAttempt: 0,
+    revoteInfo: null,
     night: {
       allTargets: new Map(),
       policeTargets: new Map(),
@@ -143,8 +148,20 @@ function buildPlayerAction(room, me) {
   if (room.phase === 'vote') {
     return {
       type: 'vote',
+      selectedTargetId: room.votes.get(me.id) || null,
       targets: alivePlayers(room)
         .filter(p => p.id !== me.id)
+        .map(p => ({ id: p.id, nickname: p.nickname, isMe: false }))
+    };
+  }
+
+  if (room.phase === 'revote') {
+    const allowed = new Set(room.revoteCandidates);
+    return {
+      type: 'revote',
+      selectedTargetId: room.votes.get(me.id) || null,
+      targets: alivePlayers(room)
+        .filter(p => allowed.has(p.id) && p.id !== me.id)
         .map(p => ({ id: p.id, nickname: p.nickname, isMe: false }))
     };
   }
@@ -197,6 +214,7 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
     log: room.log.slice(-60),
     winner: room.winner,
     voteResult: room.phase === 'voteResult' ? room.voteResult : null,
+    revoteInfo: room.phase === 'revote' ? room.revoteInfo : null,
     nightOutcome: room.phase === 'nightResult' ? room.nightOutcome : null,
     nightExpired: room.phase === 'night' ? room.night.expired : false,
     me: me ? {
@@ -301,6 +319,9 @@ function startDay(room) {
   if (checkWin(room)) return;
   room.phase = 'day';
   room.voteResult = null;
+  room.revoteCandidates = [];
+  room.revoteAttempt = 0;
+  room.revoteInfo = null;
   room.votes.clear();
   room.night.allTargets.clear();
   room.night.policeTargets.clear();
@@ -318,6 +339,9 @@ function startVote(room) {
   if (checkWin(room)) return;
   room.phase = 'vote';
   room.voteResult = null;
+  room.revoteCandidates = [];
+  room.revoteAttempt = 0;
+  room.revoteInfo = null;
   room.votes.clear();
   addLog(room, '투표 시간입니다. 마피아라고 생각하는 사람 1명을 지목하세요.');
   setPhaseTimer(room, room.settings.voteSeconds, () => resolveVote(room));
@@ -329,10 +353,20 @@ function tallyTargets(map) {
   for (const targetId of map.values()) {
     tally.set(targetId, (tally.get(targetId) || 0) + 1);
   }
+
   const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]);
-  if (!sorted.length) return { targetId: null, tie: false, count: 0, tally };
-  if (sorted.length > 1 && sorted[0][1] === sorted[1][1]) return { targetId: null, tie: true, count: sorted[0][1], tally };
-  return { targetId: sorted[0][0], tie: false, count: sorted[0][1], tally };
+  if (!sorted.length) {
+    return { targetId: null, tie: false, count: 0, tally, leaderIds: [] };
+  }
+
+  const topCount = sorted[0][1];
+  const leaderIds = sorted.filter(([, count]) => count === topCount).map(([id]) => id);
+
+  if (leaderIds.length > 1) {
+    return { targetId: null, tie: true, count: topCount, tally, leaderIds };
+  }
+
+  return { targetId: leaderIds[0], tie: false, count: topCount, tally, leaderIds };
 }
 
 function buildVoteResult(room, result) {
@@ -350,18 +384,80 @@ function buildVoteResult(room, result) {
     tie: result.tie,
     noVotes: voted.length === 0,
     eliminatedId: target?.id || null,
-    eliminatedNickname: target?.nickname || null
+    eliminatedNickname: target?.nickname || null,
+    // 낮 투표 결과에서는 특수직업까지 공개하지 않고 마피아/시민팀만 공개한다.
+    eliminatedTeam: target ? (target.role === 'mafia' ? 'mafia' : 'citizen') : null
   };
 }
 
+function startRevote(room, candidateIds, previousResult) {
+  clearTimer(room);
+
+  const validCandidates = candidateIds
+    .map(id => room.players.get(id))
+    .filter(p => p && p.alive);
+
+  // 재투표에서 아무 표도 나오지 않았다면 기존 후보를 그대로 유지한다.
+  if (validCandidates.length < 2) {
+    const fallback = room.revoteCandidates
+      .map(id => room.players.get(id))
+      .filter(p => p && p.alive);
+    if (fallback.length >= 2) {
+      validCandidates.splice(0, validCandidates.length, ...fallback);
+    }
+  }
+
+  room.phase = 'revote';
+  room.voteResult = null;
+  room.revoteCandidates = validCandidates.map(p => p.id);
+  room.revoteAttempt += 1;
+  room.votes.clear();
+
+  const tiedResults = validCandidates.map(p => ({
+    id: p.id,
+    nickname: p.nickname,
+    votes: previousResult?.tally?.get(p.id) || 0
+  }));
+
+  room.revoteInfo = {
+    attempt: room.revoteAttempt,
+    seconds: REVOTE_SECONDS,
+    candidates: tiedResults
+  };
+
+  const names = validCandidates.map(p => p.nickname).join(', ');
+  addLog(room, `최다 득표가 동률입니다. ${names} 학생을 대상으로 ${REVOTE_SECONDS}초 재투표를 시작합니다.`);
+
+  setPhaseTimer(room, REVOTE_SECONDS, () => resolveVote(room));
+  emitState(room);
+}
+
 function resolveVote(room) {
-  if (room.phase !== 'vote') return;
+  if (!['vote', 'revote'].includes(room.phase)) return;
+
+  const wasRevote = room.phase === 'revote';
   clearTimer(room);
   const result = tallyTargets(room.votes);
+
+  // 동률이면 탈락시키지 않고 동률 후보만 대상으로 40초 재투표를 한다.
+  if (result.tie && result.leaderIds.length >= 2) {
+    startRevote(room, result.leaderIds, result);
+    return;
+  }
+
+  // 재투표인데 아무도 표를 제출하지 않았다면 같은 후보로 다시 40초 재투표한다.
+  if (wasRevote && result.leaderIds.length === 0) {
+    addLog(room, '재투표에 제출된 표가 없어 같은 후보로 재투표를 다시 시작합니다.');
+    const previousCandidates = [...room.revoteCandidates];
+    const blankResult = { tally: new Map() };
+    startRevote(room, previousCandidates, blankResult);
+    return;
+  }
+
   room.voteResult = buildVoteResult(room, result);
 
   if (!result.targetId) {
-    addLog(room, result.tie ? '최다 득표가 동률이라 아무도 탈락하지 않았습니다.' : '투표가 없어 아무도 탈락하지 않았습니다.');
+    addLog(room, '투표가 없어 아무도 탈락하지 않았습니다.');
   } else {
     const target = room.players.get(result.targetId);
     if (target && target.alive) {
@@ -370,6 +466,8 @@ function resolveVote(room) {
     }
   }
 
+  room.revoteCandidates = [];
+  room.revoteInfo = null;
   room.phase = 'voteResult';
   addLog(room, `투표 결과를 ${VOTE_RESULT_SECONDS}초 동안 공개합니다.`);
   setPhaseTimer(room, VOTE_RESULT_SECONDS, () => finishVoteResult(room));
@@ -643,6 +741,7 @@ io.on('connection', socket => {
     }
     if (room.phase === 'day') startVote(room);
     else if (room.phase === 'vote') resolveVote(room);
+    else if (room.phase === 'revote') resolveVote(room);
     else if (room.phase === 'voteResult') finishVoteResult(room);
     else if (room.phase === 'night') {
       // 교사만 사용할 수 있는 강제 진행:
@@ -678,16 +777,30 @@ io.on('connection', socket => {
 
   socket.on('vote:submit', ({ code, playerToken, targetId }, ack = () => {}) => {
     const room = getRoom(code);
-    if (!room || room.phase !== 'vote') return ack({ ok: false, error: '지금은 투표 시간이 아닙니다.' });
+    if (!room || !['vote', 'revote'].includes(room.phase)) {
+      return ack({ ok: false, error: '지금은 투표 시간이 아닙니다.' });
+    }
+
     const player = [...room.players.values()].find(p => p.token === playerToken);
     const target = room.players.get(targetId);
+
     if (!player || !player.alive) return ack({ ok: false, error: '투표할 수 없습니다.' });
     if (!target || !target.alive) return ack({ ok: false, error: '유효하지 않은 대상입니다.' });
     if (target.id === player.id) return ack({ ok: false, error: '자기 자신에게는 투표할 수 없습니다.' });
+
+    if (room.phase === 'revote' && !room.revoteCandidates.includes(target.id)) {
+      return ack({ ok: false, error: '재투표 후보에게만 투표할 수 있습니다.' });
+    }
+
     room.votes.set(player.id, target.id);
     ack({ ok: true });
     emitState(room);
-    if (room.votes.size >= alivePlayers(room).length) resolveVote(room);
+
+    // 일반 투표는 전원이 제출하면 즉시 결과를 낼 수 있다.
+    // 재투표는 요청대로 40초 동안 선택/변경할 수 있게 두고, 타이머 종료 또는 교사 즉시 마감으로 끝낸다.
+    if (room.phase === 'vote' && room.votes.size >= alivePlayers(room).length) {
+      resolveVote(room);
+    }
   });
 
   socket.on('night:action', ({ code, playerToken, targetId }, ack = () => {}) => {

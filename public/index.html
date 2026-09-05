@@ -153,8 +153,22 @@
     <div class="overlay-card vote-result-card">
       <div class="overlay-kicker">🗳️ 투표 결과</div>
       <h2 id="voteResultHeadline"></h2>
+      <div id="voteResultRole" class="vote-result-role hidden"></div>
       <div id="voteResultList" class="vote-result-list"></div>
       <div id="voteResultCountdown" class="overlay-countdown"></div>
+    </div>
+  </div>
+
+  <div id="revoteOverlay" class="screen-overlay revote-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="revoteTitle">
+    <div class="overlay-card revote-card">
+      <div class="big-symbol">⚖️🗳️</div>
+      <div class="overlay-kicker">동률 · 재투표</div>
+      <h2 id="revoteTitle">최다 득표가 동률입니다!</h2>
+      <p id="revoteMessage">동률 후보들만 대상으로 다시 투표합니다.</p>
+      <div id="revotePreviousVotes" class="revote-previous-votes"></div>
+      <div id="revoteTargets" class="revote-targets"></div>
+      <div id="revoteStatus" class="privacy-note"></div>
+      <div id="revoteCountdown" class="overlay-countdown"></div>
     </div>
   </div>
 

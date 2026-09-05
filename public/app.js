@@ -107,6 +107,7 @@ const phaseText = {
   reveal: '역할 확인',
   day: '낮 · 토론',
   vote: '투표',
+  revote: '동률 · 재투표',
   voteResult: '투표 결과',
   night: '밤 · 모두 선택',
   nightResult: '밤의 결과',
@@ -434,6 +435,7 @@ function updateCountdown() {
       if (mode === 'player') $('playerTimer').textContent = expiredNight ? '00:00' : '--:--';
       $('revealCountdown').textContent = '';
       $('voteResultCountdown').textContent = '';
+      $('revoteCountdown').textContent = '';
       $('nightResultCountdown').textContent = '';
       return;
     }
@@ -444,6 +446,7 @@ function updateCountdown() {
     if (mode === 'player') $('playerTimer').textContent = txt;
     if (lastState.phase === 'reveal') $('revealCountdown').textContent = `${sec}초 후 역할이 숨겨집니다`;
     if (lastState.phase === 'voteResult') $('voteResultCountdown').textContent = `${sec}초 후 다음 단계로 이동합니다`;
+    if (lastState.phase === 'revote') $('revoteCountdown').textContent = `${sec}초 동안 재투표할 수 있습니다`;
     if (lastState.phase === 'nightResult') $('nightResultCountdown').textContent = `${sec}초 후 다음 단계로 이동합니다`;
   };
   render();
@@ -459,9 +462,10 @@ function renderHost(s) {
   renderLog($('hostLog'), s);
   renderChat($('hostChat'), s);
   $('startBtn').classList.toggle('hidden', s.phase !== 'lobby');
-  $('nextBtn').classList.toggle('hidden', !['day','vote','voteResult','night','nightResult'].includes(s.phase));
+  $('nextBtn').classList.toggle('hidden', !['day','vote','revote','voteResult','night','nightResult'].includes(s.phase));
   $('nextBtn').textContent = s.phase === 'day' ? '투표로 이동'
     : s.phase === 'vote' ? '투표 즉시 마감'
+    : s.phase === 'revote' ? '재투표 즉시 마감'
     : s.phase === 'voteResult' ? '투표 결과 즉시 마감'
     : s.phase === 'night' ? '밤 강제 진행'
     : '밤 결과 즉시 마감';
@@ -471,6 +475,9 @@ function renderHost(s) {
     $('hostNotice').textContent = `설정된 역할 합계 ${expected}명 · 현재 접속 ${s.playerCount}명. 두 수가 같아야 시작할 수 있습니다.`;
   } else if (s.phase === 'reveal') {
     $('hostNotice').textContent = '학생들이 15초 동안 자신의 역할을 확인하고 있습니다. 이 단계는 자동으로 끝납니다.';
+  } else if (s.phase === 'revote') {
+    const names = (s.revoteInfo?.candidates || []).map(c => c.nickname).join(', ');
+    $('hostNotice').textContent = `동률 재투표 중입니다. 후보: ${names}. 최대 40초 동안 투표하며 필요하면 '재투표 즉시 마감'을 누를 수 있습니다.`;
   } else if (s.phase === 'night') {
     const submitted = s.nightSummary?.submitted ?? 0;
     const required = s.nightSummary?.required ?? 0;
@@ -517,15 +524,93 @@ function renderVoteResult(s) {
     overlay.classList.add('hidden');
     return;
   }
+
   const vr = s.voteResult;
+  const roleBadge = $('voteResultRole');
   let headline = '';
-  if (vr.noVotes) headline = '아무도 표를 받지 않았습니다.';
-  else if (vr.tie) headline = '최다 득표가 동률입니다. 아무도 탈락하지 않습니다.';
-  else headline = `${esc(vr.eliminatedNickname)} 학생이 가장 많은 표를 받았습니다.`;
+
+  if (vr.noVotes) {
+    headline = '아무도 표를 받지 않았습니다.';
+    roleBadge.classList.add('hidden');
+    roleBadge.textContent = '';
+  } else {
+    headline = `${esc(vr.eliminatedNickname)} 학생이 탈락했습니다!`;
+
+    if (vr.eliminatedTeam === 'mafia') {
+      roleBadge.textContent = '정체: 🕶️ 마피아';
+      roleBadge.className = 'vote-result-role mafia';
+    } else if (vr.eliminatedTeam === 'citizen') {
+      roleBadge.textContent = '정체: 🏫 시민팀';
+      roleBadge.className = 'vote-result-role citizen';
+    } else {
+      roleBadge.classList.add('hidden');
+      roleBadge.textContent = '';
+    }
+  }
+
   $('voteResultHeadline').innerHTML = headline;
   $('voteResultList').innerHTML = vr.results.length
     ? vr.results.map((r, idx) => `<div class="vote-result-row ${idx === 0 ? 'top' : ''}"><span>${esc(r.nickname)}</span><b>${r.votes}표</b></div>`).join('')
     : '<div class="vote-result-empty">제출된 투표가 없습니다.</div>';
+
+  overlay.classList.remove('hidden');
+}
+
+function renderRevote(s) {
+  const overlay = $('revoteOverlay');
+  if (s.phase !== 'revote' || !s.revoteInfo) {
+    overlay.classList.add('hidden');
+    return;
+  }
+
+  const info = s.revoteInfo;
+  const candidates = info.candidates || [];
+  const me = s.me;
+  const action = s.action?.type === 'revote' ? s.action : null;
+
+  $('revoteTitle').textContent = `동률입니다! ${info.attempt || 1}차 재투표`;
+  $('revoteMessage').textContent = '아래 동률 후보들 중 한 명에게 다시 투표하세요.';
+
+  $('revotePreviousVotes').innerHTML = candidates.map(c =>
+    `<div class="revote-candidate-summary"><strong>${esc(c.nickname)}</strong><span>${c.votes}표</span></div>`
+  ).join('');
+
+  const targetBox = $('revoteTargets');
+
+  if (s.host) {
+    targetBox.innerHTML = candidates.map(c =>
+      `<div class="revote-host-candidate">${esc(c.nickname)}</div>`
+    ).join('');
+    $('revoteStatus').textContent = '학생들이 재투표하고 있습니다. 교사는 투표하지 않습니다.';
+  } else if (!me?.alive) {
+    targetBox.innerHTML = '';
+    $('revoteStatus').textContent = '탈락한 학생은 재투표에 참여하지 않습니다.';
+  } else if (action) {
+    if (!action.targets.length) {
+      targetBox.innerHTML = '<div class="vote-result-empty">본인을 제외하면 선택할 수 있는 후보가 없습니다.</div>';
+    } else {
+      targetBox.innerHTML = action.targets.map(p => {
+        const selected = action.selectedTargetId === p.id ? ' selected' : '';
+        return `<button class="revote-target-btn${selected}" data-id="${p.id}">${esc(p.nickname)}</button>`;
+      }).join('');
+
+      [...targetBox.querySelectorAll('button')].forEach(btn => btn.addEventListener('click', () => {
+        socket.emit('vote:submit', { code: roomCode, playerToken, targetId: btn.dataset.id }, r => {
+          if (!r.ok) return toast(r.error);
+          playDing('vote');
+          toast('재투표가 제출되었습니다.');
+        });
+      }));
+    }
+
+    $('revoteStatus').textContent = action.selectedTargetId
+      ? '선택 완료! 40초가 끝나기 전까지 다른 후보로 변경할 수 있습니다.'
+      : '동률 후보 중 한 명을 선택하세요.';
+  } else {
+    targetBox.innerHTML = '';
+    $('revoteStatus').textContent = '재투표를 준비하고 있습니다.';
+  }
+
   overlay.classList.remove('hidden');
 }
 
@@ -693,13 +778,16 @@ function renderPlayer(s) {
     $('playerNotice').innerHTML = `<span class="winner">${s.winner === 'mafia' ? '🕶️ 마피아 승리' : '🏫 시민 팀 승리'}</span>`;
   } else if (me?.policeResult) {
     $('playerNotice').innerHTML = `🔎 ${esc(me.policeResult.targetNickname)} 조사 결과: <b>${me.policeResult.isMafia ? '마피아입니다.' : '마피아가 아닙니다.'}</b>`;
+  } else if (s.phase === 'revote') {
+    $('playerNotice').textContent = '최다 득표가 동률입니다. 팝업에서 동률 후보에게 다시 투표하세요.';
   } else if (s.phase === 'voteResult') {
-    $('playerNotice').textContent = '투표 결과를 확인하세요.';
+    $('playerNotice').textContent = '투표 결과와 탈락자의 정체를 확인하세요.';
   } else if (s.phase === 'nightResult') {
     $('playerNotice').textContent = '밤의 결과를 확인하세요.';
   } else {
     $('playerNotice').textContent = s.phase === 'day' ? '친구들과 이야기하며 마피아를 추리하세요.'
       : s.phase === 'vote' ? '투표를 제출하세요.'
+      : s.phase === 'revote' ? '동률 후보에게 재투표하세요.'
       : s.phase === 'night'
         ? (s.nightExpired
             ? (s.action?.submitted ? '시간이 끝났습니다. 아직 선택하지 않은 친구가 완료할 때까지 기다리세요.' : '시간이 끝났지만 선택할 수 있습니다. 반드시 한 명을 선택하세요.')
@@ -734,10 +822,12 @@ socket.on('state', s => {
   if (s.host) {
     renderHost(s);
     renderVoteResult(s);
+    renderRevote(s);
     renderNightOutcome(s);
     $('roleRevealOverlay').classList.add('hidden');
   } else {
     renderPlayer(s);
+    renderRevote(s);
     renderNightOutcome(s);
     renderEliminationNotice(s);
   }
