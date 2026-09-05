@@ -18,6 +18,78 @@ let pendingWinnerState = null;
 let shownWinnerKey = null;
 let lastNightOutcomeId = null;
 
+// 서버 시간 동기화.
+// 각 기기의 실제 시계가 몇 초씩 달라도 서버 기준 남은 시간이 같게 보이도록 한다.
+let serverClockOffsetMs = 0;
+let serverClockSynced = false;
+let clockSyncInterval = null;
+let clockSyncInProgress = false;
+
+function syncedNow() {
+  return Date.now() + serverClockOffsetMs;
+}
+
+function applyClockSample(serverNow, clientSentAt, clientReceivedAt) {
+  if (!Number.isFinite(serverNow)) return null;
+  const rtt = Math.max(0, clientReceivedAt - clientSentAt);
+  // 응답이 왕복시간의 중간 지점에 서버에서 만들어졌다고 근사한다.
+  const estimatedServerAtReceive = serverNow + rtt / 2;
+  return {
+    rtt,
+    offset: estimatedServerAtReceive - clientReceivedAt
+  };
+}
+
+function syncServerClock(sampleCount = 5) {
+  if (!socket.connected || clockSyncInProgress) return;
+  clockSyncInProgress = true;
+
+  const samples = [];
+  let remaining = Math.max(1, sampleCount);
+
+  const takeSample = () => {
+    if (!socket.connected) {
+      clockSyncInProgress = false;
+      return;
+    }
+
+    const sentAt = Date.now();
+    socket.timeout(2500).emit('time:sync', {}, (err, response) => {
+      const receivedAt = Date.now();
+
+      if (!err && response && Number.isFinite(response.serverNow)) {
+        const sample = applyClockSample(response.serverNow, sentAt, receivedAt);
+        if (sample) samples.push(sample);
+      }
+
+      remaining -= 1;
+      if (remaining > 0) {
+        setTimeout(takeSample, 90);
+        return;
+      }
+
+      if (samples.length) {
+        // 네트워크 지연 영향을 최소화하기 위해 RTT가 가장 짧았던 표본을 사용한다.
+        samples.sort((a, b) => a.rtt - b.rtt);
+        const best = samples[0];
+
+        // 재동기화 시 갑자기 숫자가 튀는 것을 줄이기 위해 작은 차이는 부드럽게 보정한다.
+        if (!serverClockSynced) {
+          serverClockOffsetMs = best.offset;
+        } else {
+          serverClockOffsetMs = serverClockOffsetMs * 0.25 + best.offset * 0.75;
+        }
+        serverClockSynced = true;
+        updateCountdown();
+      }
+
+      clockSyncInProgress = false;
+    });
+  };
+
+  takeSample();
+}
+
 const roleText = {
   mafia: ['마피아', '밤에 시민 팀 한 명을 골라 공격하세요.'],
   citizen: ['시민', '대화와 추리를 통해 마피아를 찾아내세요.'],
@@ -313,7 +385,7 @@ function updateCountdown() {
       $('nightResultCountdown').textContent = '';
       return;
     }
-    const ms = Math.max(0, lastState.phaseEndsAt - Date.now());
+    const ms = Math.max(0, lastState.phaseEndsAt - syncedNow());
     const sec = Math.ceil(ms / 1000);
     const txt = `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
     if (mode === 'host') $('hostTimer').textContent = txt;
@@ -594,6 +666,11 @@ socket.on('state', s => {
   lastState = s;
   lastPhase = s.phase;
 
+  // 정밀 ping 동기화가 끝나기 전에는 state에 포함된 서버 시각을 임시 기준으로 사용한다.
+  if (!serverClockSynced && Number.isFinite(s.serverNow)) {
+    serverClockOffsetMs = s.serverNow - Date.now();
+  }
+
   if (!Array.isArray(s.me?.mafiaTeammates) || !s.me?.alive || ['lobby', 'ended'].includes(s.phase)) {
     hideSecretTeamHint();
   }
@@ -618,6 +695,12 @@ socket.on('state', s => {
 
 socket.on('connect', () => {
   $('connectionBadge').textContent = '● 실시간 연결됨';
+
+  // 접속 직후 여러 표본으로 서버 시각을 맞추고, 게임 중에도 주기적으로 재동기화한다.
+  serverClockSynced = false;
+  syncServerClock(6);
+  clearInterval(clockSyncInterval);
+  clockSyncInterval = setInterval(() => syncServerClock(3), 30000);
   const savedHost = JSON.parse(sessionStorage.getItem('mafiaHost') || 'null');
   if (savedHost?.roomCode && savedHost?.hostToken) {
     mode = 'host'; roomCode = savedHost.roomCode; hostToken = savedHost.hostToken; qrDataUrl = savedHost.qrDataUrl; joinUrl = savedHost.joinUrl;
@@ -642,6 +725,9 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
   $('connectionBadge').textContent = '○ 연결 끊김';
+  clearInterval(clockSyncInterval);
+  clockSyncInterval = null;
+  clockSyncInProgress = false;
 });
 
 (function initFromUrl() {

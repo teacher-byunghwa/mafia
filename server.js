@@ -182,6 +182,8 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
   }));
 
   const state = {
+    // 클라이언트 기기 시계가 서로 달라도 서버 시간을 기준으로 맞출 수 있도록 전달한다.
+    serverNow: Date.now(),
     code: room.code,
     phase: room.phase,
     round: room.round,
@@ -541,6 +543,11 @@ function getRoom(code) {
 }
 
 io.on('connection', socket => {
+  // 클라이언트가 왕복시간(RTT)을 측정해 서버와의 시계 차이를 보정할 수 있게 한다.
+  socket.on('time:sync', (_payload, ack = () => {}) => {
+    ack({ serverNow: Date.now() });
+  });
+
   socket.on('host:attach', ({ code, hostToken }, ack = () => {}) => {
     const room = getRoom(code);
     if (!room || !isHost(room, hostToken)) return ack({ ok: false, error: '교사용 인증에 실패했습니다.' });
