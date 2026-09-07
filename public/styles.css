@@ -321,3 +321,46 @@ body.student-qr-mode #landing {
   background: #f8fafc;
   border: 2px solid #e2e8f0;
 }
+
+
+/* v3.4: 시민팀 계산 안내 + 밤 역할별 행동 안내 */
+.citizen-count-guide {
+  margin: 12px 0 18px;
+  padding: 13px 15px;
+  border-radius: 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+}
+.citizen-count-guide strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+.citizen-count-guide p {
+  margin: 4px 0;
+  line-height: 1.45;
+  font-size: 13px;
+}
+.citizen-count-guide .example {
+  margin-top: 7px;
+  color: #475569;
+  font-size: 12px;
+}
+.field-note {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+.night-action-card {
+  border-top: 4px solid #6366f1;
+}
+.night-role-instruction {
+  padding: 11px 13px;
+  border-radius: 11px;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #312e81;
+  font-weight: 800;
+  line-height: 1.5;
+}

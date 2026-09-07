@@ -716,6 +716,8 @@ function renderAction(s) {
   const action = s.action;
   if (!me || !me.alive || !action) {
     card.classList.add('hidden');
+    card.classList.remove('night-action-card');
+    $('actionHelp')?.classList.remove('night-role-instruction');
     return;
   }
 
@@ -727,8 +729,8 @@ function renderAction(s) {
   } else if (action.type === 'night') {
     title = '🌙 밤 선택 · 한 명을 고르세요';
     help = action.submitted
-      ? '선택 완료! 다른 사람으로 바꾸고 싶으면 다시 누를 수 있습니다. 생존자 전원이 선택하면 자동으로 다음 단계로 넘어갑니다.'
-      : '살아 있는 모든 학생이 한 명씩 선택해야 합니다. 타이머가 0초가 되어도 선택 화면은 사라지지 않습니다.';
+      ? '✅ 선택 완료! 역할 안내는 숨겼습니다. 다른 사람으로 바꾸고 싶으면 다시 누를 수 있습니다. 생존자 전원이 선택하면 자동으로 다음 단계로 넘어갑니다.'
+      : (action.instruction || '살아 있는 모든 학생이 한 명씩 선택해야 합니다. 타이머가 0초가 되어도 선택 화면은 사라지지 않습니다.');
     event = 'night:action';
   } else {
     card.classList.add('hidden');
@@ -736,8 +738,10 @@ function renderAction(s) {
   }
 
   card.classList.remove('hidden');
+  card.classList.toggle('night-action-card', action.type === 'night');
   $('actionTitle').textContent = title;
   $('actionHelp').textContent = help;
+  $('actionHelp').classList.toggle('night-role-instruction', action.type === 'night' && !action.submitted);
   $('actionTargets').innerHTML = action.targets.map(p => {
     const selected = action.selectedTargetId === p.id ? ' selected' : '';
     return `<button class="target-btn${selected}" data-id="${p.id}">${esc(p.nickname)}${p.isMe ? ' · 나' : ''}</button>`;

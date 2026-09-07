@@ -168,12 +168,20 @@ function buildPlayerAction(room, me) {
 
   if (room.phase !== 'night') return null;
 
-  // 밤에는 살아 있는 모든 학생에게 완전히 같은 선택 화면을 보여 준다.
-  // 실제 효과는 서버가 각자의 숨겨진 역할에 따라 처리한다.
+  // 밤에는 살아 있는 모든 학생에게 같은 '한 명 선택' 버튼 구조를 보여 주되,
+  // 각 학생에게는 자기 역할에 맞는 구체적인 행동 안내를 개인 상태로만 전달한다.
+  const nightInstructions = {
+    mafia: '마피아의 밤 행동: 시민팀(시민·경찰·의사) 중 아웃시키고 싶은 학생 1명을 선택하세요. 다른 마피아들의 선택과 합산해 가장 많은 표를 받은 시민팀 학생을 공격합니다.',
+    police: '경찰의 밤 행동: 정체를 조사해 보고 싶은 학생 1명을 선택하세요. 다음 낮에 그 학생이 마피아인지 아닌지 경찰인 당신에게만 알려줍니다.',
+    doctor: '의사의 밤 행동: 오늘 밤 살리고 싶은 학생 1명을 선택하세요. 마피아가 그 학생을 공격했다면 살릴 수 있습니다. 자기 자신을 선택해도 됩니다.',
+    citizen: '시민의 밤 행동: 누가 마피아·경찰·의사인지 화면만 보고 들키지 않도록 아무나 1명을 선택하세요. 시민의 선택은 실제 밤 결과에는 아무런 영향을 주지 않습니다.'
+  };
+
   return {
     type: 'night',
     submitted: room.night.allTargets.has(me.id),
     selectedTargetId: room.night.allTargets.get(me.id) || null,
+    instruction: nightInstructions[me.role] || '밤에는 한 명을 선택하세요.',
     targets: alivePlayers(room).map(p => ({
       id: p.id,
       nickname: p.nickname,
