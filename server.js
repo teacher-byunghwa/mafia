@@ -239,7 +239,43 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
       // 일반 화면에는 노출하지 않고, 닉네임 길게 누르기에서만 잠깐 확인한다.
       mafiaTeammates: me.role === 'mafia'
         ? [...room.players.values()].filter(p => p.role === 'mafia' && p.id !== me.id).map(p => p.nickname)
-        : undefined
+        : undefined,
+      // 낮/밤 장면 전환 때 본인 화면에만 보여 줄 안내.
+      phaseInstruction: (() => {
+        if (room.phase === 'day') {
+          return {
+            title: '☀️ 낮이 시작되었습니다!',
+            message: '친구들과 이야기하며 누가 마피아인지 토론해주세요. 서로의 말을 잘 듣고 다음 투표를 준비하세요.'
+          };
+        }
+
+        if (room.phase === 'night') {
+          const byRole = {
+            mafia: {
+              title: '🌙 밤이 시작되었습니다!',
+              message: '마피아: 시민팀(시민·경찰·의사) 중 아웃시키고 싶은 학생 1명을 선택하세요.'
+            },
+            police: {
+              title: '🌙 밤이 시작되었습니다!',
+              message: '경찰: 정체를 조사해 보고 싶은 학생 1명을 선택하세요.'
+            },
+            doctor: {
+              title: '🌙 밤이 시작되었습니다!',
+              message: '의사: 오늘 밤 살리고 싶은 학생 1명을 선택하세요. 자기 자신도 선택할 수 있습니다.'
+            },
+            citizen: {
+              title: '🌙 밤이 시작되었습니다!',
+              message: '시민: 마피아·경찰·의사의 정체가 드러나지 않도록 아무나 1명을 선택해주세요. 시민의 선택은 실제 밤 결과에는 영향을 주지 않습니다.'
+            }
+          };
+          return byRole[me.role] || {
+            title: '🌙 밤이 시작되었습니다!',
+            message: '화면 안내에 따라 한 명을 선택해주세요.'
+          };
+        }
+
+        return null;
+      })()
     } : null,
     action: me ? buildPlayerAction(room, me) : null,
     host

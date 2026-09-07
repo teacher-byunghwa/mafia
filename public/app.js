@@ -17,6 +17,8 @@ let eliminationAutoCloseTimer = null;
 let pendingWinnerState = null;
 let shownWinnerKey = null;
 let lastNightOutcomeId = null;
+let phaseIntroTimer = null;
+let lastPhaseIntroKey = null;
 
 // 서버 시간 동기화.
 // 각 기기의 실제 시계가 몇 초씩 달라도 서버 기준 남은 시간이 같게 보이도록 한다.
@@ -614,6 +616,52 @@ function renderRevote(s) {
   overlay.classList.remove('hidden');
 }
 
+function hidePhaseIntro() {
+  clearTimeout(phaseIntroTimer);
+  phaseIntroTimer = null;
+  $('phaseIntroOverlay')?.classList.add('hidden');
+}
+
+function showPhaseIntro(s, previousPhase) {
+  // 낮/밤으로 실제 장면이 전환될 때만 한 번 보여 준다.
+  if (!['day', 'night'].includes(s.phase)) return;
+  if (previousPhase === s.phase) return;
+
+  // 이미 탈락한 학생은 역할 행동 안내를 받을 필요가 없다.
+  if (!s.host && !s.me?.alive) return;
+
+  const key = `${s.code || ''}:${s.round || 0}:${s.phase}`;
+  if (lastPhaseIntroKey === key) return;
+  lastPhaseIntroKey = key;
+
+  let symbol, kicker, title, message;
+
+  if (s.phase === 'day') {
+    symbol = '☀️';
+    kicker = '낮 · 토론 시간';
+    title = '낮이 시작되었습니다!';
+    message = s.host
+      ? '학생들이 친구들과 이야기하며 누가 마피아인지 토론하는 시간입니다.'
+      : (s.me?.phaseInstruction?.message || '친구들과 이야기하며 누가 마피아인지 토론해주세요.');
+  } else {
+    symbol = '🌙';
+    kicker = '밤 · 비밀 행동';
+    title = '밤이 시작되었습니다!';
+    message = s.host
+      ? '살아 있는 모든 학생이 자신의 화면 안내에 따라 한 명을 선택합니다. 필요하면 교사는 밤 강제 진행을 사용할 수 있습니다.'
+      : (s.me?.phaseInstruction?.message || '화면 안내에 따라 한 명을 선택해주세요.');
+  }
+
+  $('phaseIntroSymbol').textContent = symbol;
+  $('phaseIntroKicker').textContent = kicker;
+  $('phaseIntroTitle').textContent = title;
+  $('phaseIntroMessage').textContent = message;
+  $('phaseIntroOverlay').classList.remove('hidden');
+
+  clearTimeout(phaseIntroTimer);
+  phaseIntroTimer = setTimeout(hidePhaseIntro, 6000);
+}
+
 function renderNightOutcome(s) {
   const overlay = $('nightResultOverlay');
   const outcome = s.nightOutcome;
@@ -707,6 +755,7 @@ function renderWinnerOverlay(s) {
   showWinnerOverlay(s);
 }
 
+$('dismissPhaseIntroBtn').addEventListener('click', hidePhaseIntro);
 $('dismissEliminationBtn').addEventListener('click', closeEliminationOverlay);
 $('dismissWinnerBtn').addEventListener('click', () => $('winnerOverlay').classList.add('hidden'));
 
@@ -822,6 +871,7 @@ socket.on('state', s => {
   if (!mode) mode = s.host ? 'host' : 'player';
 
   if (previousPhase && previousPhase !== s.phase) playDing('transition');
+  showPhaseIntro(s, previousPhase);
 
   if (s.host) {
     renderHost(s);
@@ -834,6 +884,9 @@ socket.on('state', s => {
     renderRevote(s);
     renderNightOutcome(s);
     renderEliminationNotice(s);
+  }
+  if (['lobby', 'reveal', 'voteResult', 'revote', 'nightResult', 'ended'].includes(s.phase)) {
+    hidePhaseIntro();
   }
   renderWinnerOverlay(s);
   updateCountdown();
