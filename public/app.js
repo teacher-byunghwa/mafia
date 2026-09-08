@@ -155,7 +155,7 @@ function showSecretTeamHint() {
   const me = lastState?.me;
 
   // mafiaTeammates는 마피아 본인 상태에만 존재한다.
-  if (!Array.isArray(me?.mafiaTeammates) || !me?.alive) return;
+  if (!Array.isArray(me?.mafiaTeammates)) return;
   if (['lobby', 'ended'].includes(lastState?.phase)) return;
 
   const hint = $('secretTeamHint');
@@ -244,7 +244,7 @@ function playFanfare() {
 function settingsFromInputs() {
   return {
     mafia: +$('mafiaCount').value,
-    citizen: +$('citizenCount').value,
+    citizen: 0, // 일반 시민 수는 게임 시작 시 접속 학생 수로 자동 계산
     police: +$('policeCount').value,
     doctor: +$('doctorCount').value,
     daySeconds: +$('daySeconds').value,
@@ -255,7 +255,7 @@ function settingsFromInputs() {
 
 function roleTotal() {
   const s = settingsFromInputs();
-  return s.mafia + s.citizen + s.police + s.doctor;
+  return s.mafia + s.police + s.doctor;
 }
 
 function configureLandingMode() {
@@ -311,7 +311,7 @@ function configureLandingMode() {
 configureLandingMode();
 
 $('createRoomBtn').addEventListener('click', async () => {
-  if (roleTotal() > 30) return toast('역할 수 합계는 30명을 넘을 수 없습니다.');
+  if (roleTotal() > 30) return toast('마피아·경찰·의사 수의 합은 30명을 넘을 수 없습니다.');
   const res = await fetch('/api/rooms', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settingsFromInputs())
   });
@@ -463,6 +463,20 @@ function renderHost(s) {
   renderPlayers($('hostPlayers'), s, true);
   renderLog($('hostLog'), s);
   renderChat($('hostChat'), s);
+
+  const voteBox = $('hostVoteStatus');
+  if (s.hostVoteStatus && ['vote', 'revote'].includes(s.phase)) {
+    voteBox.classList.remove('hidden');
+    $('hostVoteStatusTitle').textContent = s.phase === 'revote' ? '동률 재투표 현황' : '낮 투표 현황';
+    $('hostVoteSubmittedCount').textContent = `${s.hostVoteStatus.submitted}/${s.hostVoteStatus.eligible}명 제출`;
+    $('hostVoteTally').innerHTML = s.hostVoteStatus.candidates.map((c, idx) =>
+      `<div class="host-vote-row ${idx === 0 && c.votes > 0 ? 'leader' : ''}"><span>${esc(c.nickname)}</span><b>${c.votes}표</b></div>`
+    ).join('');
+  } else {
+    voteBox.classList.add('hidden');
+    $('hostVoteTally').innerHTML = '';
+  }
+
   $('startBtn').classList.toggle('hidden', s.phase !== 'lobby');
   $('nextBtn').classList.toggle('hidden', !['day','vote','revote','voteResult','night','nightResult'].includes(s.phase));
   $('nextBtn').textContent = s.phase === 'day' ? '투표로 이동'
@@ -473,13 +487,15 @@ function renderHost(s) {
     : '밤 결과 즉시 마감';
 
   if (s.phase === 'lobby') {
-    const expected = s.settings.mafia + s.settings.citizen + s.settings.police + s.settings.doctor;
-    $('hostNotice').textContent = `설정된 역할 합계 ${expected}명 · 현재 접속 ${s.playerCount}명. 두 수가 같아야 시작할 수 있습니다.`;
+    const autoCitizen = s.playerCount - s.settings.mafia - s.settings.police - s.settings.doctor;
+    $('hostNotice').textContent = autoCitizen >= 0
+      ? `현재 접속 ${s.playerCount}명 · 마피아 ${s.settings.mafia}명 · 경찰 ${s.settings.police}명 · 의사 ${s.settings.doctor}명 · 일반 시민 ${autoCitizen}명 자동 배정`
+      : `현재 접속 ${s.playerCount}명보다 마피아·경찰·의사 수가 많습니다. 학생 접속을 기다리거나 새 방에서 역할 수를 줄여주세요.`;
   } else if (s.phase === 'reveal') {
     $('hostNotice').textContent = '학생들이 15초 동안 자신의 역할을 확인하고 있습니다. 이 단계는 자동으로 끝납니다.';
   } else if (s.phase === 'revote') {
     const names = (s.revoteInfo?.candidates || []).map(c => c.nickname).join(', ');
-    $('hostNotice').textContent = `동률 재투표 중입니다. 후보: ${names}. 최대 40초 동안 투표하며 필요하면 '재투표 즉시 마감'을 누를 수 있습니다.`;
+    $('hostNotice').textContent = `동률 재투표 중입니다. 후보: ${names}. 최대 20초 동안 투표하며 필요하면 '재투표 즉시 마감'을 누를 수 있습니다.`;
   } else if (s.phase === 'night') {
     const submitted = s.nightSummary?.submitted ?? 0;
     const required = s.nightSummary?.required ?? 0;
@@ -538,12 +554,15 @@ function renderVoteResult(s) {
   } else {
     headline = `${esc(vr.eliminatedNickname)} 학생이 탈락했습니다!`;
 
-    if (vr.eliminatedTeam === 'mafia') {
-      roleBadge.textContent = '정체: 🕶️ 마피아';
-      roleBadge.className = 'vote-result-role mafia';
-    } else if (vr.eliminatedTeam === 'citizen') {
-      roleBadge.textContent = '정체: 🏫 시민팀';
-      roleBadge.className = 'vote-result-role citizen';
+    const revealed = {
+      mafia: ['정체: 🕶️ 마피아', 'mafia'],
+      citizen: ['정체: 🏫 시민', 'citizen'],
+      police: ['정체: 👮 경찰', 'police'],
+      doctor: ['정체: 🩺 의사', 'doctor']
+    }[vr.eliminatedRole];
+    if (revealed) {
+      roleBadge.textContent = revealed[0];
+      roleBadge.className = `vote-result-role ${revealed[1]}`;
     } else {
       roleBadge.classList.add('hidden');
       roleBadge.textContent = '';
@@ -606,7 +625,7 @@ function renderRevote(s) {
     }
 
     $('revoteStatus').textContent = action.selectedTargetId
-      ? '선택 완료! 40초가 끝나기 전까지 다른 후보로 변경할 수 있습니다.'
+      ? '선택 완료! 20초가 끝나기 전까지 다른 후보로 변경할 수 있습니다.'
       : '동률 후보 중 한 명을 선택하세요.';
   } else {
     targetBox.innerHTML = '';
@@ -864,7 +883,7 @@ socket.on('state', s => {
     serverClockOffsetMs = s.serverNow - Date.now();
   }
 
-  if (!Array.isArray(s.me?.mafiaTeammates) || !s.me?.alive || ['lobby', 'ended'].includes(s.phase)) {
+  if (!Array.isArray(s.me?.mafiaTeammates) || ['lobby', 'ended'].includes(s.phase)) {
     hideSecretTeamHint();
   }
 

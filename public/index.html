@@ -25,12 +25,11 @@
         <div class="citizen-count-guide">
           <strong>🏫 시민팀 인원 안내</strong>
           <p><b>시민팀 전체 인원 = 일반 시민 + 경찰 + 의사</b>입니다.</p>
-          <p>아래의 <b>‘시민’ 입력칸에는 일반 시민 수만</b> 입력하세요. 경찰과 의사는 각각 따로 입력하면 자동으로 시민팀에 포함됩니다.</p>
-          <p class="example">예: 시민 6명 + 경찰 1명 + 의사 1명 → 시민팀은 총 8명</p>
+          <p><b>일반 시민 수는 입력하지 않습니다.</b> 게임 시작 시 접속 학생 수에서 마피아·경찰·의사 수를 빼 자동 계산합니다.</p>
+          <p class="example">예: 접속 10명, 마피아 2명, 경찰 1명, 의사 1명 → 일반 시민 6명</p>
         </div>
         <div class="form-grid">
           <label>마피아 <input id="mafiaCount" type="number" min="1" max="10" value="2"></label>
-          <label>시민 <span class="field-note">(일반 시민만)</span> <input id="citizenCount" type="number" min="0" max="29" value="6"></label>
           <label>경찰 <input id="policeCount" type="number" min="0" max="5" value="1"></label>
           <label>의사 <input id="doctorCount" type="number" min="0" max="5" value="1"></label>
           <label>낮 토론(초) <input id="daySeconds" type="number" min="30" max="900" value="180"></label>
@@ -85,6 +84,10 @@
             <button id="clearChatBtn" class="ghost">채팅 지우기</button>
           </div>
           <div id="hostNotice" class="notice"></div>
+          <div id="hostVoteStatus" class="host-vote-status hidden">
+            <div class="row between"><strong id="hostVoteStatusTitle">투표 현황</strong><span id="hostVoteSubmittedCount"></span></div>
+            <div id="hostVoteTally" class="host-vote-tally"></div>
+          </div>
         </article>
       </div>
 

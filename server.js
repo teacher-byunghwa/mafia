@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 30;
 const ROLE_REVEAL_SECONDS = 15;
 const VOTE_RESULT_SECONDS = 10;
-const REVOTE_SECONDS = 40;
+const REVOTE_SECONDS = 20;
 const NIGHT_RESULT_SECONDS = 6;
 const rooms = new Map();
 
@@ -45,7 +45,7 @@ function createRoom(settings = {}) {
     createdAt: Date.now(),
     settings: {
       mafia: clampInt(settings.mafia, 1, 10, 2),
-      citizen: clampInt(settings.citizen, 0, 29, 6),
+      citizen: 0,
       police: clampInt(settings.police, 0, 5, 1),
       doctor: clampInt(settings.doctor, 0, 5, 1),
       daySeconds: clampInt(settings.daySeconds, 30, 900, 180),
@@ -91,7 +91,7 @@ function publicUrl(req, code) {
 app.post('/api/rooms', async (req, res) => {
   const room = createRoom(req.body || {});
   const joinUrl = publicUrl(req, room.code);
-  const qrDataUrl = await QRCode.toDataURL(joinUrl, { margin: 1, width: 320 });
+  const qrDataUrl = await QRCode.toDataURL(joinUrl, { margin: 1, width: 520 });
   res.json({
     code: room.code,
     hostToken: room.hostToken,
@@ -288,6 +288,24 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
       expired: room.night.expired
     };
     state.voteSubmitted = room.votes.size;
+    if (['vote', 'revote'].includes(room.phase)) {
+      const allowed = room.phase === 'revote' ? new Set(room.revoteCandidates) : null;
+      const tally = new Map();
+      for (const targetId of room.votes.values()) {
+        if (allowed && !allowed.has(targetId)) continue;
+        tally.set(targetId, (tally.get(targetId) || 0) + 1);
+      }
+      state.hostVoteStatus = {
+        submitted: room.votes.size,
+        eligible: alivePlayers(room).length,
+        candidates: alivePlayers(room)
+          .filter(p => !allowed || allowed.has(p.id))
+          .map(p => ({ id: p.id, nickname: p.nickname, votes: tally.get(p.id) || 0 }))
+          .sort((a, b) => b.votes - a.votes || a.nickname.localeCompare(b.nickname, 'ko'))
+      };
+    } else {
+      state.hostVoteStatus = null;
+    }
   }
   return state;
 }
@@ -429,8 +447,7 @@ function buildVoteResult(room, result) {
     noVotes: voted.length === 0,
     eliminatedId: target?.id || null,
     eliminatedNickname: target?.nickname || null,
-    // 낮 투표 결과에서는 특수직업까지 공개하지 않고 마피아/시민팀만 공개한다.
-    eliminatedTeam: target ? (target.role === 'mafia' ? 'mafia' : 'citizen') : null
+    eliminatedRole: target?.role || null
   };
 }
 
@@ -476,21 +493,22 @@ function startRevote(room, candidateIds, previousResult) {
   emitState(room);
 }
 
-function resolveVote(room) {
+function resolveVote(room, force = false) {
   if (!['vote', 'revote'].includes(room.phase)) return;
 
   const wasRevote = room.phase === 'revote';
   clearTimer(room);
   const result = tallyTargets(room.votes);
 
-  // 동률이면 탈락시키지 않고 동률 후보만 대상으로 40초 재투표를 한다.
+  // 동률이면 탈락시키지 않고 동률 후보만 대상으로 20초 재투표를 한다.
   if (result.tie && result.leaderIds.length >= 2) {
     startRevote(room, result.leaderIds, result);
     return;
   }
 
-  // 재투표인데 아무도 표를 제출하지 않았다면 같은 후보로 다시 40초 재투표한다.
-  if (wasRevote && result.leaderIds.length === 0) {
+  // 재투표인데 아무도 표를 제출하지 않았다면 기본적으로 같은 후보로 다시 20초 재투표한다.
+  // 단, 교사가 즉시 마감한 경우에는 아무도 탈락하지 않은 것으로 처리하고 다음 단계로 진행한다.
+  if (wasRevote && result.leaderIds.length === 0 && !force) {
     addLog(room, '재투표에 제출된 표가 없어 같은 후보로 재투표를 다시 시작합니다.');
     const previousCandidates = [...room.revoteCandidates];
     const blankResult = { tally: new Map() };
@@ -749,7 +767,7 @@ io.on('connection', socket => {
     if (room.phase !== 'lobby') return ack({ ok: false, error: '게임 시작 후에는 설정을 바꿀 수 없습니다.' });
     room.settings = {
       mafia: clampInt(settings.mafia, 1, 10, room.settings.mafia),
-      citizen: clampInt(settings.citizen, 0, 29, room.settings.citizen),
+      citizen: room.settings.citizen,
       police: clampInt(settings.police, 0, 5, room.settings.police),
       doctor: clampInt(settings.doctor, 0, 5, room.settings.doctor),
       daySeconds: clampInt(settings.daySeconds, 30, 900, room.settings.daySeconds),
@@ -767,6 +785,15 @@ io.on('connection', socket => {
     if (!room || !isHost(room, hostToken)) return ack({ ok: false, error: '권한이 없습니다.' });
     if (room.phase !== 'lobby') return ack({ ok: false, error: '이미 시작된 게임입니다.' });
     if (room.players.size < 3) return ack({ ok: false, error: '최소 3명 이상 접속해야 합니다.' });
+
+    const specialCount = room.settings.mafia + room.settings.police + room.settings.doctor;
+    const autoCitizenCount = room.players.size - specialCount;
+    if (autoCitizenCount < 0) {
+      return ack({ ok: false, error: `현재 접속 ${room.players.size}명보다 마피아·경찰·의사 수가 많습니다.` });
+    }
+    // 일반 시민은 현재 게임방 접속 인원에 맞춰 자동 계산한다.
+    room.settings.citizen = autoCitizenCount;
+
     try {
       assignRoles(room);
     } catch (e) {
@@ -785,7 +812,7 @@ io.on('connection', socket => {
     }
     if (room.phase === 'day') startVote(room);
     else if (room.phase === 'vote') resolveVote(room);
-    else if (room.phase === 'revote') resolveVote(room);
+    else if (room.phase === 'revote') resolveVote(room, true);
     else if (room.phase === 'voteResult') finishVoteResult(room);
     else if (room.phase === 'night') {
       // 교사만 사용할 수 있는 강제 진행:
@@ -841,7 +868,7 @@ io.on('connection', socket => {
     emitState(room);
 
     // 일반 투표는 전원이 제출하면 즉시 결과를 낼 수 있다.
-    // 재투표는 요청대로 40초 동안 선택/변경할 수 있게 두고, 타이머 종료 또는 교사 즉시 마감으로 끝낸다.
+    // 재투표는 20초 동안 선택/변경할 수 있게 두고, 타이머 종료 또는 교사 즉시 마감으로 끝낸다.
     if (room.phase === 'vote' && room.votes.size >= alivePlayers(room).length) {
       resolveVote(room);
     }
