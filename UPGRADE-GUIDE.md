@@ -62,3 +62,17 @@ Render 배포 화면의 빨간 오류 메시지 또는 GitHub 저장소 첫 화�
 
 ## v2.2로 올릴 때
 기존과 동일하게 이 폴더 안의 파일 전체를 GitHub 저장소 루트에 업로드하여 덮어쓴 뒤 **Commit changes**를 누르세요. Render 자동 배포가 시작되지 않으면 **Manual Deploy → Deploy latest commit**을 누르면 됩니다. 기존 Render 주소는 바뀌지 않습니다.
+
+
+## AWS Lightsail에서 v3.7 적용하기
+현재 AWS Lightsail + PM2로 운영 중이라면 GitHub에 v3.7 파일을 업로드한 뒤 SSH에서 아래 명령을 순서대로 실행합니다.
+
+```bash
+cd ~/mafia
+git pull
+npm install
+pm2 restart mafia
+pm2 save
+```
+
+`pm2 status`에서 `mafia`가 `online`인지 확인한 뒤 브라우저를 새로고침합니다. Nginx 설정과 고정 IP는 다시 건드릴 필요가 없습니다.

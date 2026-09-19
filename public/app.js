@@ -111,7 +111,7 @@ const phaseText = {
   vote: '투표',
   revote: '동률 · 재투표',
   voteResult: '투표 결과',
-  night: '밤 · 모두 선택',
+  night: '밤 · 역할 행동',
   nightResult: '밤의 결과',
   ended: '게임 종료'
 };
@@ -411,11 +411,27 @@ function renderStats(el, s) {
 }
 
 function renderPlayers(el, s, host = false) {
+  const canKick = host && s.phase === 'lobby';
   el.innerHTML = s.players.map(p => `
-    <div class="player-chip ${p.alive ? '' : 'dead'}">
-      <strong>${esc(p.nickname)}${p.isMe ? ' · 나' : ''}</strong>
-      <span class="meta">${p.alive ? '생존' : '탈락'} · ${p.connected ? '접속' : '연결 끊김'}${host && p.role ? ` · ${esc(roleText[p.role]?.[0] || p.role)}` : ''}</span>
+    <div class="player-chip ${p.alive ? '' : 'dead'} ${!p.connected ? 'disconnected' : ''} ${canKick ? 'with-kick' : ''}">
+      <div class="player-chip-main">
+        <strong>${esc(p.nickname)}${p.isMe ? ' · 나' : ''}</strong>
+        <span class="meta">${p.alive ? '생존' : '탈락'} · ${p.connected ? '접속' : '연결 끊김'}${host && p.role ? ` · ${esc(roleText[p.role]?.[0] || p.role)}` : ''}</span>
+      </div>
+      ${canKick ? `<button class="kick-btn" data-player-id="${p.id}" data-nickname="${esc(p.nickname)}" title="이 학생을 대기실에서 내보내기">강퇴</button>` : ''}
     </div>`).join('');
+
+  if (canKick) {
+    [...el.querySelectorAll('.kick-btn')].forEach(btn => btn.addEventListener('click', () => {
+      const nickname = btn.dataset.nickname || '이 학생';
+      const ok = confirm(`${nickname} 학생을 대기실에서 강퇴할까요?\n\n게임 시작 전 잘못 접속했거나 연결이 끊긴 학생을 정리할 때 사용하세요.`);
+      if (!ok) return;
+      socket.emit('host:kickPlayer', { code: roomCode, hostToken, playerId: btn.dataset.playerId }, r => {
+        if (!r.ok) return toast(r.error);
+        toast(`${nickname} 학생을 강퇴했습니다.`);
+      });
+    }));
+  }
 }
 
 function renderChat(el, s) {
@@ -489,7 +505,7 @@ function renderHost(s) {
   if (s.phase === 'lobby') {
     const autoCitizen = s.playerCount - s.settings.mafia - s.settings.police - s.settings.doctor;
     $('hostNotice').textContent = autoCitizen >= 0
-      ? `현재 접속 ${s.playerCount}명 · 마피아 ${s.settings.mafia}명 · 경찰 ${s.settings.police}명 · 의사 ${s.settings.doctor}명 · 일반 시민 ${autoCitizen}명 자동 배정`
+      ? `현재 참가자 ${s.playerCount}명 · 마피아 ${s.settings.mafia}명 · 경찰 ${s.settings.police}명 · 의사 ${s.settings.doctor}명 · 일반 시민 ${autoCitizen}명 자동 배정 · 잘못 접속했거나 연결이 끊긴 학생은 참가자 목록의 '강퇴'로 정리할 수 있습니다.`
       : `현재 접속 ${s.playerCount}명보다 마피아·경찰·의사 수가 많습니다. 학생 접속을 기다리거나 새 방에서 역할 수를 줄여주세요.`;
   } else if (s.phase === 'reveal') {
     $('hostNotice').textContent = '학생들이 15초 동안 자신의 역할을 확인하고 있습니다. 이 단계는 자동으로 끝납니다.';
@@ -500,8 +516,8 @@ function renderHost(s) {
     const submitted = s.nightSummary?.submitted ?? 0;
     const required = s.nightSummary?.required ?? 0;
     $('hostNotice').textContent = s.nightExpired
-      ? `밤 시간이 끝났습니다. ${submitted}/${required}명 선택 완료. 기다리거나, 교사만 '밤 강제 진행'을 눌러 현재 제출된 행동만 반영할 수 있습니다.`
-      : `밤 선택 ${submitted}/${required}명 완료. 원칙적으로 전원이 선택하면 자동 진행되며, 교사는 필요할 때만 '밤 강제 진행'을 사용할 수 있습니다.`;
+      ? `밤 시간이 끝났습니다. 마피아·경찰·의사 ${submitted}/${required}명 행동 완료. 기다리거나, 교사만 '밤 강제 진행'을 눌러 현재 제출된 행동만 반영할 수 있습니다.`
+      : `밤 행동 ${submitted}/${required}명 완료. 살아 있는 마피아·경찰·의사가 모두 행동하면 자동 진행됩니다. 일반 시민은 선택하지 않습니다.`;
   } else if (s.phase === 'nightResult') {
     $('hostNotice').textContent = '밤의 결과를 모두에게 공개하고 있습니다.';
   } else if (s.phase === 'ended') {
@@ -795,21 +811,25 @@ function renderAction(s) {
     help = '한 번 선택한 뒤에도 투표 시간이 끝나기 전까지 다른 사람으로 바꿀 수 있습니다.';
     event = 'vote:submit';
   } else if (action.type === 'night') {
-    title = '🌙 밤 선택 · 한 명을 고르세요';
+    title = '🌙 밤 행동 · 한 명을 고르세요';
     help = action.submitted
-      ? '✅ 선택 완료! 역할 안내는 숨겼습니다. 다른 사람으로 바꾸고 싶으면 다시 누를 수 있습니다. 생존자 전원이 선택하면 자동으로 다음 단계로 넘어갑니다.'
-      : (action.instruction || '살아 있는 모든 학생이 한 명씩 선택해야 합니다. 타이머가 0초가 되어도 선택 화면은 사라지지 않습니다.');
+      ? '✅ 선택 완료! 역할 안내는 숨겼습니다. 다른 사람으로 바꾸고 싶으면 다시 누를 수 있습니다. 살아 있는 마피아·경찰·의사가 모두 행동하면 자동으로 다음 단계로 넘어갑니다.'
+      : (action.instruction || '역할에 맞는 밤 행동을 선택하세요. 타이머가 0초가 되어도 선택 화면은 사라지지 않습니다.');
     event = 'night:action';
+  } else if (action.type === 'night-wait') {
+    title = '🌙 밤 · 시민은 기다려주세요';
+    help = action.instruction || '일반 시민은 밤에 별도의 행동이 없습니다. 아침이 될 때까지 기다려주세요.';
+    event = null;
   } else {
     card.classList.add('hidden');
     return;
   }
 
   card.classList.remove('hidden');
-  card.classList.toggle('night-action-card', action.type === 'night');
+  card.classList.toggle('night-action-card', ['night', 'night-wait'].includes(action.type));
   $('actionTitle').textContent = title;
   $('actionHelp').textContent = help;
-  $('actionHelp').classList.toggle('night-role-instruction', action.type === 'night' && !action.submitted);
+  $('actionHelp').classList.toggle('night-role-instruction', ['night', 'night-wait'].includes(action.type) && !action.submitted);
   $('actionTargets').innerHTML = action.targets.map(p => {
     const selected = action.selectedTargetId === p.id ? ' selected' : '';
     return `<button class="target-btn${selected}" data-id="${p.id}">${esc(p.nickname)}${p.isMe ? ' · 나' : ''}</button>`;
@@ -861,9 +881,11 @@ function renderPlayer(s) {
       : s.phase === 'vote' ? '투표를 제출하세요.'
       : s.phase === 'revote' ? '동률 후보에게 재투표하세요.'
       : s.phase === 'night'
-        ? (s.nightExpired
-            ? (s.action?.submitted ? '시간이 끝났습니다. 아직 선택하지 않은 친구가 완료할 때까지 기다리세요.' : '시간이 끝났지만 선택할 수 있습니다. 반드시 한 명을 선택하세요.')
-            : '모든 생존 학생이 한 명을 선택해야 다음 라운드로 넘어갑니다.')
+        ? (s.action?.type === 'night-wait'
+            ? '시민은 밤에 별도의 행동이 없습니다. 마피아·경찰·의사의 행동이 끝날 때까지 기다려주세요.'
+            : s.nightExpired
+              ? (s.action?.submitted ? '시간이 끝났습니다. 아직 행동하지 않은 역할이 완료할 때까지 기다리세요.' : '시간이 끝났지만 아직 행동할 수 있습니다. 역할에 맞는 대상을 선택하세요.')
+              : '마피아·경찰·의사만 밤 행동을 합니다. 해당 역할의 행동이 모두 끝나면 다음 라운드로 넘어갑니다.')
         : '';
   }
 
@@ -872,6 +894,23 @@ function renderPlayer(s) {
   $('sendChatBtn').disabled = !canChat;
   renderAction(s);
 }
+
+socket.on('player:kicked', payload => {
+  const kickedCode = String(payload?.code || roomCode || '').toUpperCase();
+  if (kickedCode) {
+    localStorage.removeItem(`mafiaPlayer:${kickedCode}`);
+    localStorage.removeItem(`mafiaNick:${kickedCode}`);
+  }
+  playerToken = null;
+  lastState = null;
+  mode = null;
+  hideSecretTeamHint();
+  $('playerView').classList.add('hidden');
+  $('hostView').classList.add('hidden');
+  $('landing').classList.remove('hidden');
+  configureLandingMode();
+  toast(payload?.message || '선생님이 대기실에서 참가를 취소했습니다.');
+});
 
 socket.on('state', s => {
   const previousPhase = lastPhase;
