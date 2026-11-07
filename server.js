@@ -12,7 +12,7 @@ const io = new Server(server, { cors: { origin: false } });
 
 const PORT = process.env.PORT || 3000;
 const MAX_PLAYERS = 30;
-const ROLE_REVEAL_SECONDS = 15;
+const ROLE_REVEAL_SECONDS = 10;
 const VOTE_RESULT_SECONDS = 10;
 const REVOTE_SECONDS = 20;
 const NIGHT_RESULT_SECONDS = 6;
@@ -48,7 +48,7 @@ function createRoom(settings = {}) {
       citizen: 0,
       police: clampInt(settings.police, 0, 5, 1),
       doctor: clampInt(settings.doctor, 0, 5, 1),
-      daySeconds: clampInt(settings.daySeconds, 30, 900, 120),
+      daySeconds: clampInt(settings.daySeconds, 30, 900, 60),
       voteSeconds: clampInt(settings.voteSeconds, 15, 180, 45),
       nightSeconds: clampInt(settings.nightSeconds, 20, 180, 45),
       roleRevealSeconds: ROLE_REVEAL_SECONDS,
@@ -76,7 +76,8 @@ function createRoom(settings = {}) {
     nightOutcome: null,
     chat: [],
     log: [],
-    winner: null
+    winner: null,
+    revealConfirmed: new Set()
   };
   rooms.set(code, room);
   return room;
@@ -202,14 +203,15 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
   const host = isHost(room, hostToken);
   const counts = roleCounts(room);
   const revealActive = room.phase === 'reveal';
+  const meRevealActive = revealActive && me && !room.revealConfirmed.has(me.id);
 
   const players = [...room.players.values()].map(p => ({
     id: p.id,
     nickname: p.nickname,
     alive: p.alive,
     connected: p.connected,
-    // 교사는 항상 역할을 볼 수 있다. 학생에게는 역할 공개 15초 동안 같은 마피아만 표시한다.
-    role: host ? p.role : (revealActive && me && me.role === 'mafia' && p.role === 'mafia' ? 'mafia' : undefined),
+    // 교사는 항상 역할을 볼 수 있다. 학생에게는 역할 확인을 누르기 전까지만 같은 마피아를 표시한다.
+    role: host ? p.role : (meRevealActive && me.role === 'mafia' && p.role === 'mafia' ? 'mafia' : undefined),
     isMe: me ? p.id === me.id : false
   }));
 
@@ -235,8 +237,9 @@ function serializeRoomFor(room, playerToken = null, hostToken = null) {
     me: me ? {
       id: me.id,
       nickname: me.nickname,
-      // 역할 자체도 공개 단계에서만 클라이언트로 보낸다.
-      role: revealActive ? me.role : undefined,
+      // 역할은 공개 단계에서도 본인이 '확인했어요'를 누르기 전까지만 전달한다.
+      role: meRevealActive ? me.role : undefined,
+      revealConfirmed: revealActive ? room.revealConfirmed.has(me.id) : false,
       alive: me.alive,
       connected: me.connected,
       policeResult: room.phase === 'day' ? (me.policeResult || null) : null,
@@ -380,7 +383,8 @@ function startReveal(room) {
   room.phase = 'reveal';
   room.round = 0;
   room.voteResult = null;
-  addLog(room, `역할 공개 시간입니다. ${ROLE_REVEAL_SECONDS}초 동안 자신의 역할을 확인하세요.`);
+  room.revealConfirmed.clear();
+  addLog(room, `역할 확인 시간입니다. 최대 ${ROLE_REVEAL_SECONDS}초이며, 모두 확인하면 즉시 게임을 시작합니다.`);
   setPhaseTimer(room, ROLE_REVEAL_SECONDS, () => startDay(room));
   emitState(room);
 }
@@ -686,7 +690,14 @@ function resolveNight(room, force = false) {
   emitState(room);
 }
 
-function assignRoles(room) {
+function resetPlayerForGame(player, role) {
+  player.role = role;
+  player.alive = true;
+  player.policeResult = null;
+  player.eliminationNotice = null;
+}
+
+function assignRolesRandom(room) {
   const s = room.settings;
   const roles = [
     ...Array(s.mafia).fill('mafia'),
@@ -702,12 +713,42 @@ function assignRoles(room) {
     const j = Math.floor(Math.random() * (i + 1));
     [roles[i], roles[j]] = [roles[j], roles[i]];
   }
-  players.forEach((p, idx) => {
-    p.role = roles[idx];
-    p.alive = true;
-    p.policeResult = null;
-    p.eliminationNotice = null;
-  });
+  players.forEach((player, idx) => resetPlayerForGame(player, roles[idx]));
+}
+
+function assignRolesManual(room, manualAssignments = {}) {
+  const players = [...room.players.values()];
+  const validPlayerIds = new Set(players.map(p => p.id));
+  const allowedRoles = new Set(['citizen', 'mafia', 'police', 'doctor']);
+  const assigned = new Map();
+
+  if (!manualAssignments || typeof manualAssignments !== 'object' || Array.isArray(manualAssignments)) {
+    throw new Error('교사 역할 선택 정보를 확인할 수 없습니다. 다시 선택해주세요.');
+  }
+
+  for (const [playerId, role] of Object.entries(manualAssignments)) {
+    if (!validPlayerIds.has(playerId)) throw new Error('현재 참가자 명단에 없는 학생이 포함되어 있습니다.');
+    if (!allowedRoles.has(role)) throw new Error('유효하지 않은 역할이 선택되었습니다.');
+    assigned.set(playerId, role);
+  }
+
+  const counts = { mafia: 0, police: 0, doctor: 0, citizen: 0 };
+  for (const player of players) {
+    const role = assigned.get(player.id) || 'citizen';
+    counts[role] += 1;
+  }
+
+  const s = room.settings;
+  if (counts.mafia !== s.mafia || counts.police !== s.police || counts.doctor !== s.doctor) {
+    throw new Error(`역할 수를 맞춰주세요. 마피아 ${counts.mafia}/${s.mafia}, 경찰 ${counts.police}/${s.police}, 의사 ${counts.doctor}/${s.doctor}명입니다.`);
+  }
+  if (counts.citizen !== s.citizen) {
+    throw new Error(`일반 시민 수가 맞지 않습니다. 현재 ${counts.citizen}명, 필요한 인원은 ${s.citizen}명입니다.`);
+  }
+
+  for (const player of players) {
+    resetPlayerForGame(player, assigned.get(player.id) || 'citizen');
+  }
 }
 
 function getRoom(code) {
@@ -792,7 +833,7 @@ io.on('connection', socket => {
     emitState(room);
   });
 
-  socket.on('host:start', ({ code, hostToken }, ack = () => {}) => {
+  socket.on('host:start', ({ code, hostToken, assignmentMode = 'auto', manualAssignments = null }, ack = () => {}) => {
     const room = getRoom(code);
     if (!room || !isHost(room, hostToken)) return ack({ ok: false, error: '권한이 없습니다.' });
     if (room.phase !== 'lobby') return ack({ ok: false, error: '이미 시작된 게임입니다.' });
@@ -807,13 +848,42 @@ io.on('connection', socket => {
     room.settings.citizen = autoCitizenCount;
 
     try {
-      assignRoles(room);
+      if (assignmentMode === 'manual') {
+        assignRolesManual(room, manualAssignments);
+      } else if (assignmentMode === 'auto') {
+        assignRolesRandom(room);
+      } else {
+        return ack({ ok: false, error: '역할 배정 방식을 다시 선택해주세요.' });
+      }
     } catch (e) {
       return ack({ ok: false, error: e.message });
     }
-    addLog(room, '게임이 시작되었습니다. 첫 15초 동안만 각자 역할을 확인합니다.');
+    addLog(room, assignmentMode === 'manual'
+      ? '교사가 역할을 직접 배정했습니다. 최대 10초 동안 역할을 확인하며, 모두 확인하면 즉시 시작합니다.'
+      : '역할을 자동으로 무작위 배정했습니다. 최대 10초 동안 역할을 확인하며, 모두 확인하면 즉시 시작합니다.');
     ack({ ok: true });
     startReveal(room);
+  });
+
+
+  socket.on('reveal:confirm', ({ code, playerToken }, ack = () => {}) => {
+    const room = getRoom(code);
+    if (!room || room.phase !== 'reveal') return ack({ ok: false, error: '지금은 역할 확인 시간이 아닙니다.' });
+    const player = [...room.players.values()].find(p => p.token === playerToken);
+    if (!player) return ack({ ok: false, error: '참가자 정보를 찾을 수 없습니다.' });
+
+    room.revealConfirmed.add(player.id);
+    ack({ ok: true, confirmed: room.revealConfirmed.size, required: room.players.size });
+
+    // 모든 학생이 역할 확인을 마치면 남은 시간을 기다리지 않고 바로 낮을 시작한다.
+    if (room.revealConfirmed.size >= room.players.size) {
+      addLog(room, '모든 학생이 역할 확인을 완료해 바로 게임을 시작합니다.');
+      startDay(room);
+      return;
+    }
+
+    // 확인한 학생에게는 역할 정보를 즉시 숨기고, 나머지 학생은 계속 확인할 수 있게 한다.
+    emitState(room);
   });
 
   socket.on('host:next', ({ code, hostToken }, ack = () => {}) => {

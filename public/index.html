@@ -32,7 +32,7 @@
           <label>마피아 <input id="mafiaCount" type="number" min="1" max="10" value="2"></label>
           <label>경찰 <input id="policeCount" type="number" min="0" max="5" value="1"></label>
           <label>의사 <input id="doctorCount" type="number" min="0" max="5" value="1"></label>
-          <label>낮 토론(초) <input id="daySeconds" type="number" min="30" max="900" value="120"></label>
+          <label>낮 토론(초) <input id="daySeconds" type="number" min="30" max="900" value="60"></label>
           <label>투표(초) <input id="voteSeconds" type="number" min="15" max="180" value="45"></label>
           <label>밤 행동(초) <input id="nightSeconds" type="number" min="20" max="180" value="45"></label>
         </div>
@@ -45,9 +45,9 @@
         <p class="muted">친구들과 이야기하고 추리하면서 숨어 있는 마피아를 찾아보세요.</p>
         <div class="student-guide">
           <div><span>1</span><p><strong>닉네임으로 입장하기</strong><br>선생님이 알아볼 수 있는 닉네임을 사용해요.</p></div>
-          <div><span>2</span><p><strong>내 역할은 나만 보기</strong><br>게임 시작 뒤 15초 동안 자신의 역할을 확인해요. 친구에게 화면을 보여주면 안 돼요.</p></div>
+          <div><span>2</span><p><strong>내 역할은 나만 보기</strong><br>게임 시작 뒤 최대 10초 동안 자신의 역할을 확인해요. 확인했으면 바로 버튼을 눌러 화면을 가려요.</p></div>
           <div><span>3</span><p><strong>낮에는 토론과 투표</strong><br>친구들의 이야기를 잘 듣고 누가 마피아인지 추리해요.</p></div>
-          <div><span>4</span><p><strong>밤에는 화면 안내 따르기</strong><br>살아 있는 학생은 모두 화면에서 한 명을 선택해요.</p></div>
+          <div><span>4</span><p><strong>밤에는 화면 안내 따르기</strong><br>마피아·경찰·의사는 화면 안내에 따라 행동하고, 일반 시민은 기다려요.</p></div>
         </div>
         <p class="student-rule-note">🤫 역할과 비밀 정보는 게임이 끝날 때까지 다른 친구에게 말하지 않아요!</p>
       </article>
@@ -146,6 +146,41 @@
       </article>
     </section>
   </main>
+  <div id="roleAssignOverlay" class="screen-overlay role-assign-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="roleAssignTitle">
+    <div class="overlay-card role-assign-card">
+      <div id="roleAssignChoice">
+        <div class="big-symbol">🎭</div>
+        <div class="overlay-kicker">게임 시작 전</div>
+        <h2 id="roleAssignTitle">역할을 어떻게 배정할까요?</h2>
+        <p id="roleAssignSummary"></p>
+        <div class="role-assign-choice-grid">
+          <button id="autoAssignBtn" class="role-assign-choice auto-choice">
+            <strong>🤖 AI 자동 배정</strong>
+            <span>게임이 학생들에게 역할을 무작위로 배정합니다.</span>
+          </button>
+          <button id="manualAssignBtn" class="role-assign-choice manual-choice">
+            <strong>👩‍🏫 교사가 직접 선택</strong>
+            <span>학생 이름을 보고 마피아·경찰·의사를 직접 정합니다.</span>
+          </button>
+        </div>
+        <button id="cancelRoleAssignBtn" class="ghost overlay-button">취소</button>
+      </div>
+
+      <div id="manualRoleAssignPanel" class="hidden">
+        <div class="overlay-kicker">교사 전용 · 비밀 설정</div>
+        <h2>역할 직접 선택</h2>
+        <p>각 학생의 역할을 골라주세요. 선택하지 않은 학생은 일반 시민입니다.</p>
+        <div id="manualRoleCountSummary" class="manual-role-count-summary"></div>
+        <div id="manualRoleError" class="manual-role-error hidden"></div>
+        <div id="manualRoleList" class="manual-role-list"></div>
+        <div class="manual-role-actions">
+          <button id="backRoleAssignBtn" class="ghost">← 방식 다시 선택</button>
+          <button id="confirmManualAssignBtn" class="primary">이 역할로 게임 시작</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="roleRevealOverlay" class="screen-overlay hidden">
     <div class="overlay-card role-reveal-card">
       <div class="overlay-kicker">쉿! 나만 확인하세요</div>
@@ -154,7 +189,8 @@
       <p id="roleRevealDesc"></p>
       <div id="mafiaTeamInfo" class="mafia-team hidden"></div>
       <div id="revealCountdown" class="overlay-countdown"></div>
-      <div class="privacy-note">친구에게 화면을 보여주지 마세요.</div>
+      <button id="confirmRoleRevealBtn" class="primary overlay-button">확인했어요 · 역할 숨기기</button>
+      <div class="privacy-note">확인한 즉시 버튼을 눌러 화면을 가려주세요. 모두 확인하면 바로 게임이 시작됩니다.</div>
     </div>
   </div>
 

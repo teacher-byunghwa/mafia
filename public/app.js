@@ -365,9 +365,112 @@ $('copyUrlBtn').addEventListener('click', async () => {
   toast('입장 링크를 복사했습니다.');
 });
 
+function closeRoleAssignmentOverlay() {
+  $('roleAssignOverlay')?.classList.add('hidden');
+  $('roleAssignChoice')?.classList.remove('hidden');
+  $('manualRoleAssignPanel')?.classList.add('hidden');
+  $('manualRoleError')?.classList.add('hidden');
+}
+
+function startGameWithAssignment(assignmentMode, manualAssignments = null) {
+  unlockAudio();
+  socket.emit('host:start', { code: roomCode, hostToken, assignmentMode, manualAssignments }, r => {
+    if (!r.ok) return toast(r.error);
+    closeRoleAssignmentOverlay();
+  });
+}
+
+function manualRoleCounts() {
+  const counts = { mafia: 0, police: 0, doctor: 0, citizen: 0 };
+  document.querySelectorAll('#manualRoleList select[data-player-id]').forEach(select => {
+    const role = select.value || 'citizen';
+    if (counts[role] !== undefined) counts[role] += 1;
+  });
+  return counts;
+}
+
+function updateManualRoleCountSummary() {
+  if (!lastState) return;
+  const actual = manualRoleCounts();
+  const target = lastState.settings;
+  const ok = actual.mafia === target.mafia && actual.police === target.police && actual.doctor === target.doctor;
+  $('manualRoleCountSummary').innerHTML = `
+    <div class="manual-count ${actual.mafia === target.mafia ? 'ok' : ''}">마피아 <b>${actual.mafia}/${target.mafia}</b></div>
+    <div class="manual-count ${actual.police === target.police ? 'ok' : ''}">경찰 <b>${actual.police}/${target.police}</b></div>
+    <div class="manual-count ${actual.doctor === target.doctor ? 'ok' : ''}">의사 <b>${actual.doctor}/${target.doctor}</b></div>
+    <div class="manual-count ok">시민 <b>${actual.citizen}</b></div>`;
+  $('confirmManualAssignBtn').disabled = !ok;
+  const error = $('manualRoleError');
+  if (ok) {
+    error.classList.add('hidden');
+    error.textContent = '';
+  } else {
+    error.classList.remove('hidden');
+    error.textContent = `설정한 인원수에 맞춰주세요: 마피아 ${target.mafia}명 · 경찰 ${target.police}명 · 의사 ${target.doctor}명`;
+  }
+}
+
+function renderManualRoleList() {
+  if (!lastState) return;
+  const list = $('manualRoleList');
+  list.innerHTML = lastState.players.map(p => `
+    <label class="manual-role-row">
+      <span><strong>${esc(p.nickname)}</strong><small>${p.connected ? '접속 중' : '연결 끊김'}</small></span>
+      <select data-player-id="${p.id}">
+        <option value="citizen">시민</option>
+        <option value="mafia">마피아</option>
+        <option value="police">경찰</option>
+        <option value="doctor">의사</option>
+      </select>
+    </label>`).join('');
+  list.querySelectorAll('select[data-player-id]').forEach(select => {
+    select.addEventListener('change', updateManualRoleCountSummary);
+  });
+  updateManualRoleCountSummary();
+}
+
+function openRoleAssignmentOverlay() {
+  if (!lastState || lastState.phase !== 'lobby') return;
+  const specialCount = lastState.settings.mafia + lastState.settings.police + lastState.settings.doctor;
+  if (lastState.playerCount < 3) return toast('최소 3명 이상 접속해야 합니다.');
+  if (specialCount > lastState.playerCount) return toast('현재 접속 학생 수보다 마피아·경찰·의사 수가 많습니다.');
+
+  const citizens = lastState.playerCount - specialCount;
+  $('roleAssignSummary').textContent = `현재 ${lastState.playerCount}명 · 마피아 ${lastState.settings.mafia}명 · 경찰 ${lastState.settings.police}명 · 의사 ${lastState.settings.doctor}명 · 시민 ${citizens}명`;
+  $('roleAssignChoice').classList.remove('hidden');
+  $('manualRoleAssignPanel').classList.add('hidden');
+  $('roleAssignOverlay').classList.remove('hidden');
+}
+
 $('startBtn').addEventListener('click', () => {
   unlockAudio();
-  socket.emit('host:start', { code: roomCode, hostToken }, r => { if (!r.ok) toast(r.error); });
+  openRoleAssignmentOverlay();
+});
+
+$('autoAssignBtn').addEventListener('click', () => startGameWithAssignment('auto'));
+$('manualAssignBtn').addEventListener('click', () => {
+  $('roleAssignChoice').classList.add('hidden');
+  $('manualRoleAssignPanel').classList.remove('hidden');
+  renderManualRoleList();
+});
+$('cancelRoleAssignBtn').addEventListener('click', closeRoleAssignmentOverlay);
+$('backRoleAssignBtn').addEventListener('click', () => {
+  $('manualRoleAssignPanel').classList.add('hidden');
+  $('roleAssignChoice').classList.remove('hidden');
+});
+$('confirmManualAssignBtn').addEventListener('click', () => {
+  if (!lastState) return;
+  const actual = manualRoleCounts();
+  const target = lastState.settings;
+  if (actual.mafia !== target.mafia || actual.police !== target.police || actual.doctor !== target.doctor) {
+    updateManualRoleCountSummary();
+    return toast('마피아·경찰·의사 인원수를 설정값과 맞춰주세요.');
+  }
+  const manualAssignments = {};
+  document.querySelectorAll('#manualRoleList select[data-player-id]').forEach(select => {
+    manualAssignments[select.dataset.playerId] = select.value || 'citizen';
+  });
+  startGameWithAssignment('manual', manualAssignments);
 });
 
 $('nextBtn').addEventListener('click', () => {
@@ -473,6 +576,7 @@ function updateCountdown() {
 
 function renderHost(s) {
   showHost();
+  if (s.phase !== 'lobby') closeRoleAssignmentOverlay();
   $('hostPhase').textContent = `${phaseText[s.phase]}${s.round ? ` · ${s.round}라운드` : ''}`;
   $('playerCount').textContent = `${s.playerCount}/${s.maxPlayers}`;
   renderStats($('hostCounts'), s);
@@ -508,7 +612,9 @@ function renderHost(s) {
       ? `현재 참가자 ${s.playerCount}명 · 마피아 ${s.settings.mafia}명 · 경찰 ${s.settings.police}명 · 의사 ${s.settings.doctor}명 · 일반 시민 ${autoCitizen}명 자동 배정 · 잘못 접속했거나 연결이 끊긴 학생은 참가자 목록의 '강퇴'로 정리할 수 있습니다.`
       : `현재 접속 ${s.playerCount}명보다 마피아·경찰·의사 수가 많습니다. 학생 접속을 기다리거나 새 방에서 역할 수를 줄여주세요.`;
   } else if (s.phase === 'reveal') {
-    $('hostNotice').textContent = '학생들이 15초 동안 자신의 역할을 확인하고 있습니다. 이 단계는 자동으로 끝납니다.';
+    const confirmed = s.revealSummary?.confirmed ?? 0;
+    const required = s.revealSummary?.required ?? s.playerCount;
+    $('hostNotice').textContent = `학생들이 역할을 확인하고 있습니다. ${confirmed}/${required}명 확인 완료 · 모두 확인하면 즉시 시작, 최대 10초 후 자동 시작됩니다.`;
   } else if (s.phase === 'revote') {
     const names = (s.revoteInfo?.candidates || []).map(c => c.nickname).join(', ');
     $('hostNotice').textContent = `동률 재투표 중입니다. 후보: ${names}. 최대 20초 동안 투표하며 필요하면 '재투표 즉시 마감'을 누를 수 있습니다.`;
@@ -549,6 +655,7 @@ function renderRoleReveal(s) {
     team.classList.add('hidden');
     team.textContent = '';
   }
+  $('confirmRoleRevealBtn').disabled = false;
   overlay.classList.remove('hidden');
 }
 
@@ -790,6 +897,22 @@ function renderWinnerOverlay(s) {
   showWinnerOverlay(s);
 }
 
+
+$('confirmRoleRevealBtn').addEventListener('click', () => {
+  if (!lastState || lastState.phase !== 'reveal' || !playerToken) return;
+  const btn = $('confirmRoleRevealBtn');
+  btn.disabled = true;
+  socket.emit('reveal:confirm', { code: roomCode, playerToken }, r => {
+    if (!r.ok) {
+      btn.disabled = false;
+      return toast(r.error);
+    }
+    // 서버 상태가 돌아오기 전에도 다른 학생 화면을 보지 못하도록 즉시 가린다.
+    $('roleRevealOverlay').classList.add('hidden');
+    toast('역할 확인을 완료했습니다.');
+  });
+});
+
 $('dismissPhaseIntroBtn').addEventListener('click', hidePhaseIntro);
 $('dismissEliminationBtn').addEventListener('click', closeEliminationOverlay);
 $('dismissWinnerBtn').addEventListener('click', () => $('winnerOverlay').classList.add('hidden'));
@@ -855,7 +978,7 @@ function renderPlayer(s) {
   renderPlayers($('playerList'), s, false);
   renderChat($('playerChat'), s);
 
-  // 평상시에는 역할 카드를 완전히 숨긴다. 역할은 시작 직후 15초 오버레이에서만 공개된다.
+  // 평상시에는 역할 카드를 완전히 숨긴다. 역할은 시작 직후 최대 10초, 확인 버튼을 누르기 전까지만 공개된다.
   $('roleCard').classList.add('hidden');
   renderRoleReveal(s);
   renderVoteResult(s);
@@ -863,7 +986,9 @@ function renderPlayer(s) {
   if (s.phase === 'lobby') {
     $('playerNotice').textContent = '교사가 게임을 시작할 때까지 기다려 주세요.';
   } else if (s.phase === 'reveal') {
-    $('playerNotice').textContent = '자신의 역할을 조용히 확인하세요.';
+    $('playerNotice').textContent = me?.revealConfirmed
+      ? '역할 확인 완료! 다른 친구들이 확인하는 동안 화면을 가리고 기다려 주세요.'
+      : '자신의 역할을 조용히 확인한 뒤 확인 버튼을 눌러주세요.';
   } else if (!me?.alive) {
     $('playerNotice').innerHTML = '<span class="danger">현재 탈락 상태입니다. 다른 친구들의 플레이를 지켜보세요.</span>';
   } else if (s.phase === 'ended') {

@@ -437,3 +437,32 @@ body.student-qr-mode #landing {
   background: #ffe4e6;
   border-color: #fda4af;
 }
+
+
+/* v3.8: 게임 시작 시 역할 배정 방식 선택 */
+.role-assign-overlay { z-index: 75; background: rgba(15, 23, 42, .88); }
+.role-assign-card { width: min(760px, calc(100vw - 28px)); text-align: left; border: 3px solid #bfdbfe; }
+.role-assign-card > #roleAssignChoice { text-align: center; }
+.role-assign-choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; }
+.role-assign-choice { min-height: 120px; padding: 18px; display: grid; gap: 8px; align-content: center; text-align: left; border: 2px solid #dbe4ef; background: #f8fafc; color: #14213d; }
+.role-assign-choice:hover { border-color: #93c5fd; background: #eff6ff; }
+.role-assign-choice strong { font-size: 20px; }
+.role-assign-choice span { color: #64748b; font-size: 13px; line-height: 1.45; }
+.auto-choice { border-color: #bfdbfe; }
+.manual-choice { border-color: #c7d2fe; }
+.manual-role-count-summary { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.manual-count { padding: 8px 10px; border-radius: 10px; background: #fff7ed; border: 1px solid #fed7aa; font-weight: 800; }
+.manual-count.ok { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.manual-role-error { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: #fff1f2; border: 1px solid #fecdd3; color: #be123c; font-weight: 800; font-size: 13px; }
+.manual-role-list { display: grid; gap: 8px; max-height: 46vh; overflow: auto; padding: 4px 2px 4px 0; }
+.manual-role-row { grid-template-columns: minmax(0, 1fr) 150px; align-items: center; gap: 12px; padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 11px; background: #f8fafc; }
+.manual-role-row > span { display: grid; gap: 2px; min-width: 0; }
+.manual-role-row small { color: #64748b; font-weight: 700; }
+.manual-role-row select { width: 100%; border: 1px solid #cbd5e1; border-radius: 9px; padding: 9px 10px; background: #fff; font: inherit; font-weight: 800; }
+.manual-role-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 16px; }
+@media (max-width: 620px) {
+  .role-assign-choice-grid { grid-template-columns: 1fr; }
+  .manual-role-row { grid-template-columns: 1fr 125px; }
+  .manual-role-actions { flex-direction: column-reverse; }
+  .manual-role-actions button { width: 100%; }
+}
